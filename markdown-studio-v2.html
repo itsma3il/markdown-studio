@@ -1,0 +1,5051 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+    <link rel="apple-touch-icon" sizes="180x180" href="./assets/images/android-chrome-192x192.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="./assets/images/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="./assets/images/favicon-16x16.png" />
+    <link rel="manifest" href="./scripts/site.webmanifest" />
+    <title>Markdown Studio</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/vue/3.4.21/vue.global.prod.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.0/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css"
+      id="hljs-theme"
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,300;0,400;0,600;1,400&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&family=Playfair+Display:ital,wght@0,700;1,400&family=Source+Serif+4:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Sans:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&family=Raleway:wght@300;400;600;700&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css"
+    />
+    <style>
+      /* ── Reset ── */
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      :root {
+        --bg0: #ffffff;
+        --bg1: #f7f6f3;
+        --bg2: #efede8;
+        --bg3: #e5e3dc;
+        --fg0: #1a1916;
+        --fg1: #3d3b36;
+        --fg2: #6b6860;
+        --fg3: #9c9a94;
+        --acc: #ee930a;
+        --acc2: #fdb13f;
+        --acc-bg: #fff3ec;
+        --err: #dc2626;
+        --suc: #16a34a;
+        --warn: #d97706;
+        --border: #d6d3cc;
+        --border2: #c4c1ba;
+        --rad: 8px;
+        --rad2: 12px;
+        --shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.06);
+        --shadow2:
+          0 8px 32px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.06);
+        --font-ui: "DM Sans", sans-serif;
+        --font-mono: "DM Mono", monospace;
+      }
+      [data-theme="dark"] {
+        --bg0: #161512;
+        --bg1: #1e1d1a;
+        --bg2: #252420;
+        --bg3: #2e2d28;
+        --fg0: #f0ede6;
+        --fg1: #d4d0c8;
+        --fg2: #9c9890;
+        --fg3: #6b6860;
+        --acc: #ffbd59;
+        --acc2: #ffd392;
+        --acc-bg: #1e3a5f;
+        --border: #35342f;
+        --border2: #46443d;
+        --shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+        --shadow2: 0 8px 32px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.3);
+      }
+
+      /* ── App shell: fixed 100vh with no overflow escape ── */
+      html,
+      body {
+        height: 100%;
+        overflow: hidden;
+      }
+      body {
+        font-family: var(--font-ui);
+        background: var(--bg1);
+        color: var(--fg0);
+        display: flex;
+        flex-direction: column;
+        font-size: 14px;
+        height: 100vh;
+        max-height: 100vh;
+      }
+      #vue-root {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        overflow: hidden;
+        min-height: 0;
+      }
+
+      button {
+        font-family: var(--font-ui);
+        cursor: pointer;
+        border: none;
+        background: none;
+        color: inherit;
+      }
+      input,
+      select,
+      textarea {
+        font-family: var(--font-ui);
+        color: inherit;
+        background: var(--bg0);
+        border: 1px solid var(--border);
+        border-radius: var(--rad);
+        padding: 6px 10px;
+        font-size: 13px;
+        outline: none;
+        width: 100%;
+      }
+      input:focus,
+      select:focus,
+      textarea:focus {
+        border-color: var(--acc);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--acc) 20%, transparent);
+      }
+      select {
+        cursor: pointer;
+      }
+      ::-webkit-scrollbar {
+        width: 5px;
+        height: 5px;
+      }
+      ::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: var(--border2);
+        border-radius: 99px;
+      }
+
+      /* ── Topbar ── */
+      #topbar {
+        height: 46px;
+        min-height: 46px;
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0 10px;
+        background: var(--bg0);
+        border-bottom: 1px solid var(--border);
+        z-index: 200;
+        overflow: hidden;
+      }
+      .logo {
+        font-size: 15px;
+        font-weight: 700;
+        letter-spacing: -0.5px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-right: 6px;
+        flex-shrink: 0;
+        color: var(--fg0);
+      }
+      .logo-mark {
+        width: 80px;
+        height: 22px;
+        /* background: var(--acc); */
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+      }
+      .logo-mark i {
+        font-size: 13px;
+        color: #fff;
+      }
+      .logo-mark img {
+        width: 75px;
+        height: 75px;
+      }
+      .tb-sep {
+        width: 1px;
+        height: 18px;
+        background: var(--border);
+        margin: 0 2px;
+        flex-shrink: 0;
+      }
+      .tb-btn {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 4px 8px;
+        border-radius: 6px;
+        font-size: 12px;
+        font-weight: 500;
+        color: var(--fg1);
+        transition:
+          background 0.15s,
+          color 0.15s;
+        white-space: nowrap;
+        flex-shrink: 0;
+      }
+      .tb-btn:hover {
+        background: var(--bg2);
+        color: var(--fg0);
+      }
+      .tb-btn.active {
+        background: var(--acc-bg);
+        color: var(--acc);
+      }
+      .tb-btn i {
+        font-size: 14px;
+      }
+      .tb-icon {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 30px;
+        height: 30px;
+        border-radius: 6px;
+        color: var(--fg2);
+        transition:
+          background 0.1s,
+          color 0.1s;
+        flex-shrink: 0;
+      }
+      .tb-icon:hover {
+        background: var(--bg2);
+        color: var(--fg0);
+      }
+      .tb-icon.active {
+        background: var(--acc-bg);
+        color: var(--acc);
+      }
+      .tb-icon i {
+        font-size: 16px;
+      }
+      .tb-right {
+        margin-left: auto;
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        flex-shrink: 0;
+      }
+      .tb-theme-sel {
+        padding: 4px 26px 4px 8px;
+        font-size: 12px;
+        border-radius: 6px;
+        appearance: none;
+        cursor: pointer;
+        min-width: 0;
+        width: 150px;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%236b6860' stroke-width='2.5'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 6px center;
+      }
+      .filename-badge {
+        font-size: 12px;
+        color: var(--fg2);
+        padding: 3px 8px;
+        background: var(--bg2);
+        border-radius: 6px;
+        max-width: 140px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        cursor: text;
+      }
+      .filename-badge:hover {
+        background: var(--bg3);
+      }
+
+      /* ── Layout ── */
+      #app-body {
+        display: flex;
+        flex: 1;
+        overflow: hidden;
+        min-height: 0;
+      }
+      #sidebar {
+        width: 210px;
+        min-width: 210px;
+        flex-shrink: 0;
+        background: var(--bg0);
+        border-right: 1px solid var(--border);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        transition:
+          width 0.2s,
+          min-width 0.2s;
+      }
+      #sidebar.collapsed {
+        width: 0;
+        min-width: 0;
+      }
+      #main {
+        flex: 1;
+        display: flex;
+        overflow: hidden;
+        min-width: 0;
+      }
+
+      /* ── Editor Pane ── */
+      #editor-pane {
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        min-width: 200px;
+        flex: 1;
+      }
+      #editor-pane.hidden {
+        display: none;
+      }
+      #editor-wrap {
+        flex: 1;
+        overflow: hidden;
+        position: relative;
+        display: flex;
+        flex-direction: column;
+      }
+      #editor-textarea {
+        flex: 1;
+        width: 100%;
+        height: 100%;
+        resize: none;
+        border: none;
+        outline: none;
+        background: var(--bg0);
+        color: var(--fg0);
+        font-family: var(--font-mono);
+        font-size: 13px;
+        line-height: 1.75;
+        padding: 20px 24px;
+        tab-size: 2;
+        caret-color: var(--acc);
+        overflow-y: auto;
+        overflow-x: auto;
+        /* Critical: prevent textarea from pushing layout */
+        display: block;
+        box-sizing: border-box;
+      }
+      #editor-textarea::selection {
+        background: color-mix(in srgb, var(--acc) 25%, transparent);
+      }
+
+      /* ── Preview Pane ── */
+      #preview-pane {
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        min-width: 200px;
+        flex: 1;
+        border-left: 1px solid var(--border);
+      }
+      #preview-pane.hidden {
+        display: none;
+      }
+      #preview-scroller {
+        flex: 1;
+        overflow-y: auto;
+        overflow-x: hidden;
+        min-height: 0;
+      }
+      #preview-page {
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 40px 48px 80px;
+        background: var(--bg0);
+        min-height: 100%;
+        box-sizing: border-box;
+      }
+
+      /* ── Resizer ── */
+      #resizer {
+        width: 4px;
+        flex-shrink: 0;
+        background: var(--border);
+        cursor: col-resize;
+        transition: background 0.15s;
+        user-select: none;
+      }
+      #resizer:hover,
+      #resizer.dragging {
+        background: var(--acc);
+      }
+
+      /* ── Pane Toolbar ── */
+      .pane-toolbar {
+        height: 36px;
+        min-height: 36px;
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        gap: 3px;
+        padding: 0 10px;
+        background: var(--bg0);
+        border-bottom: 1px solid var(--border);
+        overflow: hidden;
+      }
+      .pane-label {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--fg3);
+        margin-right: 4px;
+        flex-shrink: 0;
+      }
+      .tool-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 26px;
+        height: 26px;
+        border-radius: 5px;
+        color: var(--fg2);
+        transition:
+          background 0.1s,
+          color 0.1s;
+        font-size: 14px;
+        flex-shrink: 0;
+      }
+      .tool-btn:hover {
+        background: var(--bg2);
+        color: var(--fg0);
+      }
+      .tool-btn.active {
+        background: var(--acc-bg);
+        color: var(--acc);
+      }
+      .tool-sep {
+        width: 1px;
+        height: 14px;
+        background: var(--border);
+        margin: 0 2px;
+        flex-shrink: 0;
+      }
+
+      /* ── Sidebar ── */
+      .sidebar-section {
+        padding: 8px 10px;
+        border-bottom: 1px solid var(--border);
+      }
+      .sidebar-title {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--fg3);
+        margin-bottom: 6px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .file-item {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        padding: 5px 7px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 12px;
+        color: var(--fg1);
+        transition: background 0.1s;
+        position: relative;
+      }
+      .file-item:hover {
+        background: var(--bg2);
+      }
+      .file-item.active {
+        background: var(--acc-bg);
+        color: var(--acc);
+      }
+      .file-item i {
+        font-size: 13px;
+        flex-shrink: 0;
+      }
+      .file-item .file-name {
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .file-item .file-del {
+        opacity: 0;
+        padding: 2px 4px;
+        border-radius: 4px;
+        font-size: 11px;
+        transition: opacity 0.1s;
+        color: var(--fg3);
+      }
+      .file-item:hover .file-del {
+        opacity: 1;
+      }
+      .file-item .file-del:hover {
+        background: var(--bg3);
+        color: var(--err);
+      }
+      .sb-btn {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        padding: 5px 7px;
+        border-radius: 6px;
+        font-size: 12px;
+        color: var(--fg1);
+        transition: background 0.15s;
+        text-align: left;
+      }
+      .sb-btn:hover {
+        background: var(--bg2);
+        color: var(--fg0);
+      }
+      .sb-btn i {
+        font-size: 13px;
+        flex-shrink: 0;
+      }
+      .sidebar-scroll {
+        flex: 1;
+        overflow-y: auto;
+        overflow-x: hidden;
+      }
+      .outline-item {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 3px 6px;
+        border-radius: 5px;
+        cursor: pointer;
+        font-size: 11px;
+        color: var(--fg2);
+        transition: background 0.1s;
+        white-space: nowrap;
+        overflow: hidden;
+      }
+      .outline-item:hover {
+        background: var(--bg2);
+        color: var(--fg0);
+      }
+
+      /* ── Status Bar ── */
+      #statusbar {
+        height: 22px;
+        min-height: 22px;
+        flex-shrink: 0;
+        background: var(--bg0);
+        border-top: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        padding: 0 12px;
+        gap: 14px;
+        font-size: 10px;
+        color: var(--fg3);
+        overflow: hidden;
+      }
+      .status-dot {
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        display: inline-block;
+        margin-right: 3px;
+      }
+
+      /* ── Markdown Rendering ── */
+      .md-body {
+        line-height: 1.7;
+        word-break: break-word;
+      }
+      .md-body h1,
+      .md-body h2,
+      .md-body h3,
+      .md-body h4,
+      .md-body h5,
+      .md-body h6 {
+        margin: 1.4em 0 0.45em;
+        font-weight: 600;
+        line-height: 1.3;
+      }
+      .md-body h1 {
+        font-size: 2em;
+      }
+      .md-body h2 {
+        font-size: 1.5em;
+      }
+      .md-body h3 {
+        font-size: 1.25em;
+      }
+      .md-body h4 {
+        font-size: 1.1em;
+      }
+      .md-body p {
+        margin: 0.7em 0;
+      }
+      .md-body a {
+        color: var(--acc);
+        text-decoration: none;
+      }
+      .md-body a:hover {
+        text-decoration: underline;
+      }
+      .md-body ul,
+      .md-body ol {
+        padding-left: 1.5em;
+        margin: 0.5em 0;
+      }
+      .md-body li {
+        margin: 0.15em 0;
+      }
+      .md-body blockquote {
+        margin: 0.7em 0;
+        padding: 0.4em 1em;
+        border-left: 3px solid var(--border2);
+        color: var(--fg2);
+        font-style: italic;
+      }
+      .md-body code {
+        font-family: var(--font-mono);
+        font-size: 0.87em;
+        background: var(--bg2);
+        padding: 1px 5px;
+        border-radius: 4px;
+        word-break: break-all;
+      }
+      .md-body pre {
+        background: var(--bg2);
+        padding: 0.9em 1em;
+        border-radius: var(--rad);
+        overflow-x: auto;
+        margin: 0.7em 0;
+      }
+      .md-body pre code {
+        background: none;
+        padding: 0;
+        font-size: 0.84em;
+        line-height: 1.6;
+        word-break: normal;
+      }
+      .md-body table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 0.7em 0;
+        font-size: 0.94em;
+        display: block;
+        overflow-x: auto;
+      }
+      .md-body th,
+      .md-body td {
+        padding: 0.45em 0.7em;
+        border: 1px solid var(--border);
+      }
+      .md-body th {
+        background: var(--bg2);
+        font-weight: 600;
+      }
+      .md-body hr {
+        border: none;
+        border-top: 1px solid var(--border);
+        margin: 1.4em 0;
+      }
+      .md-body img {
+        max-width: 100%;
+        border-radius: var(--rad);
+        display: block;
+        margin: 0.7em auto;
+      }
+
+      /* ── Theme: Default ── */
+      .theme-default {
+        font-family: "DM Sans", sans-serif;
+        font-size: 16px;
+      }
+      .theme-default h1 {
+        font-size: 2em;
+        font-weight: 700;
+        letter-spacing: -0.03em;
+      }
+      .theme-default h2 {
+        font-size: 1.4em;
+        font-weight: 600;
+        border-bottom: 1px solid var(--border);
+        padding-bottom: 0.35em;
+      }
+      .theme-default blockquote {
+        border-left-color: var(--acc);
+      }
+
+      /* ── Theme: Research ── */
+      .theme-research {
+        font-family: "Crimson Pro", serif;
+        font-size: 17px;
+      }
+      .theme-research h1 {
+        font-size: 1.85em;
+        font-weight: 600;
+        text-align: center;
+      }
+      .theme-research h2 {
+        font-size: 1.28em;
+        font-weight: 600;
+        font-variant: small-caps;
+        border-bottom: 2px solid currentColor;
+        padding-bottom: 0.2em;
+        letter-spacing: 0.05em;
+      }
+      .theme-research h3 {
+        font-size: 1.12em;
+        font-weight: 600;
+        font-style: italic;
+      }
+      .theme-research p {
+        text-indent: 1.5em;
+        text-align: justify;
+        hyphens: auto;
+      }
+      .theme-research h1 + p,
+      .theme-research h2 + p,
+      .theme-research h3 + p {
+        text-indent: 0;
+      }
+      .theme-research blockquote {
+        border-left: 2px solid #888;
+        font-style: italic;
+      }
+      #preview-page.theme-research {
+        max-width: 680px;
+        padding: 48px 60px 80px;
+      }
+
+      /* ── Theme: Scientific ── */
+      .theme-scientific {
+        font-family: "IBM Plex Sans", sans-serif;
+        font-size: 15px;
+      }
+      .theme-scientific h1 {
+        font-size: 1.65em;
+        font-weight: 600;
+        color: var(--acc);
+        border-bottom: 3px solid var(--acc);
+        padding-bottom: 0.35em;
+      }
+      .theme-scientific h2 {
+        font-size: 1.2em;
+        font-weight: 600;
+        background: var(--bg2);
+        padding: 0.28em 0.55em;
+        border-radius: 4px;
+        margin-top: 1.7em;
+      }
+      .theme-scientific h3 {
+        font-size: 1.08em;
+        font-weight: 600;
+        color: var(--acc);
+      }
+      .theme-scientific table th {
+        background: var(--acc);
+        color: #fff;
+      }
+      .theme-scientific blockquote {
+        background: var(--acc-bg);
+        border-left: 4px solid var(--acc);
+        border-radius: 0 var(--rad) var(--rad) 0;
+        font-style: normal;
+      }
+
+      /* ── Theme: CV ── */
+      .theme-cv {
+        font-family: "Raleway", sans-serif;
+        font-size: 14px;
+      }
+      .theme-cv h1 {
+        font-size: 2.3em;
+        font-weight: 700;
+        letter-spacing: -0.04em;
+        text-transform: uppercase;
+        border-bottom: 3px solid var(--fg0);
+        padding-bottom: 0.2em;
+      }
+      .theme-cv h2 {
+        font-size: 0.78em;
+        font-weight: 700;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--fg2);
+        border-bottom: 1px solid var(--border);
+        padding-bottom: 0.18em;
+        margin-top: 1.5em;
+        margin-bottom: 0.45em;
+      }
+      .theme-cv h3 {
+        font-size: 1.02em;
+        font-weight: 600;
+        margin-bottom: 0;
+      }
+      .theme-cv h4 {
+        font-size: 0.88em;
+        font-weight: 400;
+        font-style: italic;
+        color: var(--fg2);
+      }
+      .theme-cv ul {
+        list-style: none;
+        padding-left: 0;
+      }
+      .theme-cv ul li::before {
+        content: "—";
+        margin-right: 0.45em;
+        color: var(--fg3);
+      }
+      .theme-cv blockquote {
+        border: none;
+        font-size: 1.04em;
+        color: var(--fg1);
+        padding: 0;
+        margin: 0.25em 0;
+      }
+      #preview-page.theme-cv {
+        max-width: 720px;
+        padding: 48px 56px 80px;
+      }
+
+      /* ── Theme: LaTeX ── */
+      .theme-latex {
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: 16px;
+      }
+      .theme-latex h1 {
+        font-size: 1.65em;
+        font-weight: 700;
+        text-align: center;
+        font-variant: small-caps;
+        letter-spacing: 0.04em;
+      }
+      .theme-latex h2 {
+        font-size: 1.28em;
+        font-weight: 700;
+        margin-top: 1.8em;
+      }
+      .theme-latex h3 {
+        font-size: 1.08em;
+        font-weight: 700;
+        font-style: italic;
+        margin-top: 1.2em;
+      }
+      .theme-latex p {
+        text-indent: 1.5em;
+        text-align: justify;
+        margin: 0.3em 0;
+        hyphens: auto;
+      }
+      .theme-latex h1 + p,
+      .theme-latex h2 + p,
+      .theme-latex h3 + p {
+        text-indent: 0;
+      }
+      .theme-latex blockquote {
+        margin: 1em 2em;
+        border: none;
+        font-style: italic;
+        font-size: 0.93em;
+        color: var(--fg2);
+      }
+      .theme-latex pre {
+        background: none;
+        border: 1px solid var(--border);
+      }
+      .theme-latex code {
+        font-family: "Space Mono", monospace;
+        font-size: 0.8em;
+        background: none;
+      }
+      .theme-latex hr {
+        border: none;
+        text-align: center;
+        margin: 1.5em 0;
+      }
+      .theme-latex hr::after {
+        content: "* * *";
+        color: var(--fg3);
+        letter-spacing: 0.4em;
+      }
+      #preview-page.theme-latex {
+        max-width: 680px;
+        padding: 72px 80px 96px;
+        font-size: 15px;
+      }
+
+      /* ── Theme: Editorial ── */
+      .theme-editorial {
+        font-family: "Source Serif 4", serif;
+        font-size: 17px;
+      }
+      .theme-editorial h1 {
+        font-family: "Playfair Display", serif;
+        font-size: 2.9em;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        line-height: 1.1;
+        margin-bottom: 0.3em;
+      }
+      .theme-editorial h2 {
+        font-family: "Playfair Display", serif;
+        font-size: 1.55em;
+        font-weight: 700;
+        font-style: italic;
+        border: none;
+      }
+      .theme-editorial h3 {
+        font-family: "DM Sans", sans-serif;
+        font-size: 0.78em;
+        font-weight: 600;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--fg2);
+      }
+      .theme-editorial blockquote {
+        font-family: "Playfair Display", serif;
+        font-size: 1.35em;
+        font-style: italic;
+        border: none;
+        text-align: center;
+        padding: 1em 2em;
+        line-height: 1.4;
+      }
+      .theme-editorial blockquote::before {
+        content: "\201C";
+        font-size: 3em;
+        line-height: 0;
+        vertical-align: -0.6em;
+        color: var(--fg3);
+        margin-right: 0.1em;
+      }
+      #preview-page.theme-editorial {
+        max-width: 720px;
+        padding: 56px 60px 80px;
+      }
+
+      /* ── Theme: Technical ── */
+      .theme-technical {
+        font-family: "IBM Plex Sans", sans-serif;
+        font-size: 14.5px;
+      }
+      .theme-technical h1 {
+        font-size: 1.75em;
+        font-weight: 600;
+        padding-bottom: 0.45em;
+        border-bottom: 2px solid var(--border);
+      }
+      .theme-technical h2 {
+        font-size: 1.28em;
+        font-weight: 600;
+        margin-top: 1.9em;
+        padding: 0.18em 0;
+        border-bottom: 1px solid var(--border);
+      }
+      .theme-technical h3 {
+        font-size: 1.08em;
+        font-weight: 600;
+        color: var(--fg1);
+      }
+      .theme-technical code {
+        background: var(--bg2);
+        color: var(--acc);
+        font-family: "JetBrains Mono", monospace;
+        font-size: 0.83em;
+      }
+      .theme-technical pre {
+        background: var(--bg2);
+        border: 1px solid var(--border);
+        font-family: "JetBrains Mono", monospace;
+      }
+      .theme-technical blockquote {
+        background: var(--bg2);
+        border-left: 3px solid var(--warn);
+        border-radius: 0 var(--rad) var(--rad) 0;
+      }
+
+      /* ── Theme: Minimal ── */
+      .theme-minimal {
+        font-family: "DM Sans", sans-serif;
+        font-size: 16px;
+      }
+      .theme-minimal h1 {
+        font-size: 1.75em;
+        font-weight: 300;
+        letter-spacing: -0.04em;
+      }
+      .theme-minimal h2 {
+        font-size: 1.18em;
+        font-weight: 400;
+        color: var(--fg2);
+        margin-top: 1.9em;
+        border: none;
+      }
+      .theme-minimal h3 {
+        font-size: 1em;
+        font-weight: 500;
+        color: var(--fg1);
+      }
+      .theme-minimal blockquote {
+        border-left-color: var(--fg3);
+        color: var(--fg2);
+      }
+      #preview-page.theme-minimal {
+        max-width: 640px;
+      }
+
+      /* ── Modals ── */
+      .modal-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.5);
+        z-index: 1000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        animation: fadein 0.15s ease;
+      }
+      @keyframes fadein {
+        from {
+          opacity: 0;
+        }
+        to {
+          opacity: 1;
+        }
+      }
+      .modal-box {
+        background: var(--bg0);
+        border: 1px solid var(--border);
+        border-radius: var(--rad2);
+        box-shadow: var(--shadow2);
+        padding: 22px;
+        width: 560px;
+        max-width: 96vw;
+        max-height: 88vh;
+        overflow-y: auto;
+        animation: slideup 0.2s ease;
+      }
+      @keyframes slideup {
+        from {
+          transform: translateY(10px);
+          opacity: 0;
+        }
+        to {
+          transform: translateY(0);
+          opacity: 1;
+        }
+      }
+      .modal-wide {
+        width: 800px;
+      }
+      .modal-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 18px;
+      }
+      .modal-title {
+        font-size: 15px;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 7px;
+      }
+      .modal-title i {
+        font-size: 17px;
+        color: var(--acc);
+      }
+      .modal-close {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 26px;
+        height: 26px;
+        border-radius: 6px;
+        color: var(--fg2);
+        transition: background 0.1s;
+      }
+      .modal-close:hover {
+        background: var(--bg2);
+        color: var(--fg0);
+      }
+      .modal-footer {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-top: 18px;
+        padding-top: 14px;
+        border-top: 1px solid var(--border);
+      }
+
+      /* ── Buttons ── */
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 6px 13px;
+        border-radius: var(--rad);
+        font-size: 13px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.15s;
+        border: 1px solid var(--border);
+        background: var(--bg0);
+        color: var(--fg0);
+      }
+      .btn:hover {
+        background: var(--bg2);
+        border-color: var(--border2);
+      }
+      .btn:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+      .btn-primary {
+        background: var(--acc);
+        color: #fff;
+        border-color: var(--acc);
+      }
+      .btn-primary:hover {
+        background: var(--acc2);
+        border-color: var(--acc2);
+      }
+      .btn-danger {
+        background: var(--err);
+        color: #fff;
+        border-color: var(--err);
+      }
+      .btn-sm {
+        padding: 4px 9px;
+        font-size: 12px;
+      }
+      .btn i {
+        font-size: 14px;
+      }
+
+      /* ── Forms ── */
+      .form-group {
+        margin-bottom: 13px;
+      }
+      .form-label {
+        display: block;
+        font-size: 12px;
+        font-weight: 500;
+        color: var(--fg2);
+        margin-bottom: 4px;
+      }
+      .form-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+
+      /* ── Export Grid ── */
+      .export-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+        margin-bottom: 16px;
+      }
+      .export-card {
+        border: 1.5px solid var(--border);
+        border-radius: var(--rad2);
+        padding: 14px 10px;
+        text-align: center;
+        cursor: pointer;
+        transition: all 0.15s;
+        background: var(--bg0);
+      }
+      .export-card:hover {
+        border-color: var(--acc);
+        background: var(--acc-bg);
+        transform: translateY(-1px);
+      }
+      .export-card.featured {
+        border-color: var(--acc);
+      }
+      .export-card i {
+        font-size: 26px;
+        color: var(--acc);
+        margin-bottom: 7px;
+        display: block;
+      }
+      .export-card-name {
+        font-size: 12px;
+        font-weight: 600;
+        margin-bottom: 2px;
+      }
+      .export-card-desc {
+        font-size: 10px;
+        color: var(--fg2);
+      }
+
+      /* ── Export PDF settings ── */
+      .pdf-settings {
+        background: var(--bg2);
+        border-radius: var(--rad);
+        padding: 12px;
+        margin: 10px 0;
+      }
+      .pdf-settings-title {
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.07em;
+        color: var(--fg3);
+        margin-bottom: 8px;
+      }
+
+      /* ── Templates ── */
+      .template-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 8px;
+      }
+      .template-card {
+        border: 1.5px solid var(--border);
+        border-radius: var(--rad);
+        padding: 10px;
+        cursor: pointer;
+        transition:
+          border-color 0.15s,
+          background 0.15s;
+      }
+      .template-card:hover {
+        border-color: var(--acc);
+        background: var(--acc-bg);
+      }
+      .template-icon {
+        font-size: 20px;
+        margin-bottom: 5px;
+        color: var(--acc);
+      }
+      .template-name {
+        font-size: 12px;
+        font-weight: 600;
+        margin-bottom: 2px;
+      }
+      .template-desc {
+        font-size: 11px;
+        color: var(--fg2);
+      }
+
+      /* ── Image Manager ── */
+      .img-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+        gap: 8px;
+      }
+      .img-card {
+        background: var(--bg2);
+        border: 1.5px solid var(--border);
+        border-radius: var(--rad);
+        overflow: hidden;
+        cursor: pointer;
+        transition:
+          border-color 0.1s,
+          transform 0.1s;
+        position: relative;
+      }
+      .img-card:hover {
+        border-color: var(--acc);
+        transform: translateY(-1px);
+      }
+      .img-card.selected {
+        border-color: var(--acc);
+        background: var(--acc-bg);
+      }
+      .img-card img {
+        width: 100%;
+        height: 75px;
+        object-fit: cover;
+        display: block;
+      }
+      .img-card-info {
+        padding: 4px 6px;
+        font-size: 10px;
+        color: var(--fg2);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .img-card-actions {
+        display: flex;
+        gap: 2px;
+        padding: 3px 4px;
+        border-top: 1px solid var(--border);
+      }
+      .img-card-actions button {
+        flex: 1;
+        font-size: 10px;
+        padding: 2px 3px;
+        border-radius: 3px;
+        text-align: center;
+        transition: background 0.1s;
+        color: var(--fg1);
+      }
+      .img-card-actions button:hover {
+        background: var(--bg3);
+        color: var(--fg0);
+      }
+      .img-sel-badge {
+        position: absolute;
+        top: 4px;
+        right: 4px;
+        width: 18px;
+        height: 18px;
+        background: var(--acc);
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #fff;
+        font-size: 10px;
+      }
+
+      /* ── Crop ── */
+      .crop-wrap {
+        position: relative;
+        overflow: hidden;
+        background: #0a0a0a;
+        border-radius: var(--rad);
+        cursor: crosshair;
+        user-select: none;
+      }
+      .crop-wrap img {
+        display: block;
+        max-width: 100%;
+        max-height: 320px;
+        margin: 0 auto;
+      }
+      .crop-sel {
+        position: absolute;
+        border: 2px solid #fff;
+        box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.55);
+      }
+
+      /* ── Style Panel ── */
+      .style-panel {
+        width: 230px;
+        min-width: 230px;
+        flex-shrink: 0;
+        border-left: 1px solid var(--border);
+        background: var(--bg0);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      .style-panel-body {
+        flex: 1;
+        overflow-y: auto;
+        padding: 12px;
+      }
+      .sp-section {
+        margin-bottom: 14px;
+        padding-bottom: 14px;
+        border-bottom: 1px solid var(--border);
+      }
+      .sp-section:last-child {
+        border-bottom: none;
+      }
+      .sp-title {
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--fg3);
+        margin-bottom: 8px;
+      }
+      .slider-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-bottom: 5px;
+        font-size: 11px;
+      }
+      .slider-row label {
+        width: 74px;
+        color: var(--fg2);
+        flex-shrink: 0;
+      }
+      .slider-row input[type="range"] {
+        flex: 1;
+        accent-color: var(--acc);
+        height: 3px;
+      }
+      .slider-row .val {
+        min-width: 34px;
+        text-align: right;
+        font-size: 10px;
+        color: var(--fg3);
+      }
+      .color-row {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        margin-bottom: 5px;
+        font-size: 11px;
+      }
+      .color-row label {
+        width: 74px;
+        color: var(--fg2);
+        flex-shrink: 0;
+      }
+      .color-row input[type="color"] {
+        width: 30px;
+        height: 22px;
+        padding: 1px;
+        border-radius: 4px;
+        cursor: pointer;
+        border: 1px solid var(--border);
+      }
+      .font-chip {
+        display: inline-flex;
+        align-items: center;
+        padding: 2px 8px;
+        border: 1px solid var(--border);
+        border-radius: 99px;
+        font-size: 10px;
+        cursor: pointer;
+        margin: 2px;
+        transition: all 0.1s;
+        background: var(--bg0);
+      }
+      .font-chip:hover,
+      .font-chip.active {
+        background: var(--acc);
+        border-color: var(--acc);
+        color: #fff;
+      }
+
+      /* ── Context Menu ── */
+      #ctx-menu {
+        position: fixed;
+        z-index: 2000;
+        background: var(--bg0);
+        border: 1px solid var(--border);
+        border-radius: var(--rad2);
+        box-shadow: var(--shadow2);
+        padding: 4px;
+        min-width: 190px;
+        animation: ctxIn 0.1s ease;
+      }
+      @keyframes ctxIn {
+        from {
+          opacity: 0;
+          transform: scale(0.96);
+        }
+        to {
+          opacity: 1;
+          transform: scale(1);
+        }
+      }
+      .ctx-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 10px;
+        border-radius: 6px;
+        font-size: 12px;
+        cursor: pointer;
+        color: var(--fg0);
+        transition: background 0.1s;
+        white-space: nowrap;
+      }
+      .ctx-item:hover {
+        background: var(--bg2);
+      }
+      .ctx-item.danger:hover {
+        background: #fee2e2;
+        color: var(--err);
+      }
+      .ctx-item i {
+        font-size: 14px;
+        color: var(--fg2);
+        width: 16px;
+        flex-shrink: 0;
+      }
+      .ctx-item:hover i {
+        color: inherit;
+      }
+      .ctx-sep {
+        height: 1px;
+        background: var(--border);
+        margin: 3px 0;
+      }
+      .ctx-label {
+        font-size: 10px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.07em;
+        color: var(--fg3);
+        padding: 5px 10px 2px;
+      }
+      .ctx-shortcut {
+        margin-left: auto;
+        font-size: 10px;
+        color: var(--fg3);
+        font-family: var(--font-mono);
+      }
+
+      /* ── Tabs ── */
+      .tab-bar {
+        display: flex;
+        border-bottom: 1px solid var(--border);
+        background: var(--bg0);
+        padding: 0 8px;
+        flex-shrink: 0;
+      }
+      .tab {
+        padding: 7px 11px;
+        font-size: 12px;
+        color: var(--fg2);
+        cursor: pointer;
+        border-bottom: 2px solid transparent;
+        margin-bottom: -1px;
+        transition: color 0.1s;
+        white-space: nowrap;
+      }
+      .tab:hover {
+        color: var(--fg0);
+      }
+      .tab.active {
+        color: var(--acc);
+        border-bottom-color: var(--acc);
+      }
+
+      /* ── Notifications ── */
+      #notif-area {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        z-index: 9999;
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+        pointer-events: none;
+        max-width: 300px;
+      }
+      .notif {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        padding: 8px 12px;
+        background: var(--bg0);
+        border: 1px solid var(--border);
+        border-radius: var(--rad);
+        box-shadow: var(--shadow2);
+        font-size: 12px;
+        font-weight: 500;
+        animation: notifIn 0.2s ease;
+        pointer-events: auto;
+      }
+      @keyframes notifIn {
+        from {
+          transform: translateX(16px);
+          opacity: 0;
+        }
+        to {
+          transform: translateX(0);
+          opacity: 1;
+        }
+      }
+      .notif i {
+        font-size: 15px;
+      }
+      .notif.success {
+        border-left: 3px solid var(--suc);
+      }
+      .notif.success i {
+        color: var(--suc);
+      }
+      .notif.error {
+        border-left: 3px solid var(--err);
+      }
+      .notif.error i {
+        color: var(--err);
+      }
+      .notif.info {
+        border-left: 3px solid var(--acc);
+      }
+      .notif.info i {
+        color: var(--acc);
+      }
+      .notif.warn {
+        border-left: 3px solid var(--warn);
+      }
+      .notif.warn i {
+        color: var(--warn);
+      }
+
+      /* ── Focus Mode ── */
+      .focus-overlay {
+        position: fixed;
+        inset: 0;
+        background: var(--bg0);
+        z-index: 500;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      .focus-overlay .focus-content {
+        flex: 1;
+        overflow-y: auto;
+        overflow-x: hidden;
+      }
+      .focus-overlay .focus-inner {
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 80px 80px 120px;
+      }
+      .focus-toolbar {
+        position: absolute;
+        top: 12px;
+        right: 12px;
+        display: flex;
+        gap: 6px;
+      }
+
+      /* ── Word count progress ── */
+      .wc-bar {
+        height: 2px;
+        background: var(--bg3);
+        border-radius: 1px;
+        overflow: hidden;
+        margin-top: 2px;
+      }
+      .wc-fill {
+        height: 100%;
+        background: var(--acc);
+        border-radius: 1px;
+        transition: width 0.3s;
+      }
+
+      /* ── Rename input ── */
+      .rename-input {
+        background: transparent;
+        border: 1px solid var(--acc);
+        border-radius: 4px;
+        padding: 1px 4px;
+        font-size: 12px;
+        width: 130px;
+        outline: none;
+      }
+
+      /* ── Print styles for proper multi-page PDF ── */
+      @media print {
+        html,
+        body {
+          height: auto !important;
+          overflow: visible !important;
+        }
+        #vue-root,
+        #app-body,
+        #main,
+        #editor-pane,
+        #preview-pane,
+        #preview-scroller {
+          overflow: visible !important;
+          height: auto !important;
+        }
+        #topbar,
+        #statusbar,
+        #sidebar,
+        #editor-pane,
+        #resizer,
+        .pane-toolbar,
+        #ctx-menu,
+        #notif-area,
+        .style-panel,
+        #style-panel-wrap {
+          display: none !important;
+        }
+        #preview-pane {
+          display: block !important;
+          border: none !important;
+          overflow: visible !important;
+        }
+        #preview-scroller {
+          overflow: visible !important;
+          height: auto !important;
+        }
+        #preview-page {
+          max-width: 100% !important;
+          padding: 0 !important;
+          margin: 0 !important;
+          min-height: 0 !important;
+          background: white !important;
+        }
+        .md-body pre {
+          white-space: pre-wrap;
+          page-break-inside: avoid;
+        }
+        .md-body h1,
+        .md-body h2,
+        .md-body h3 {
+          page-break-after: avoid;
+        }
+        .md-body p,
+        .md-body li {
+          orphans: 3;
+          widows: 3;
+        }
+        .md-body table {
+          page-break-inside: avoid;
+        }
+        .md-body img {
+          page-break-inside: avoid;
+          max-width: 100% !important;
+        }
+        @page {
+          margin: 2cm 2.5cm;
+        }
+      }
+
+      /* ── Transition ── */
+      .slide-r-enter-active,
+      .slide-r-leave-active {
+        transition: all 0.2s ease;
+      }
+      .slide-r-enter-from,
+      .slide-r-leave-to {
+        opacity: 0;
+        transform: translateX(16px);
+      }
+      .fade-enter-active,
+      .fade-leave-active {
+        transition: opacity 0.15s;
+      }
+      .fade-enter-from,
+      .fade-leave-to {
+        opacity: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="vue-root">
+      <!-- ── TOPBAR ── -->
+      <div id="topbar">
+        <div class="logo">
+          <div class="logo-mark">
+            <img src="M-transparent.png" alt="Markdown studio logo" sizes="13x13" srcset="">
+          </div>
+        </div>
+        <div class="tb-sep"></div>
+
+        <button class="tb-btn" @click="newFile" title="New (Ctrl+N)">
+          <i class="ti ti-file-plus"></i>New
+        </button>
+        <button class="tb-btn" @click="triggerMdUpload" title="Open file">
+          <i class="ti ti-folder-open"></i>Open
+        </button>
+        <button
+          class="tb-btn"
+          :class="{active:unsaved}"
+          @click="saveFile"
+          title="Save (Ctrl+S)"
+        >
+          <i class="ti ti-device-floppy"></i>{{unsaved?'Save*':'Saved'}}
+        </button>
+        <input
+          ref="mdFileInput"
+          type="file"
+          accept=".md,.markdown,.txt"
+          style="display: none"
+          @change="onMdFileUpload"
+        />
+
+        <div class="tb-sep"></div>
+
+        <!-- Filename editable -->
+        <span
+          v-if="!renamingFile"
+          class="filename-badge"
+          @dblclick="startRename"
+          title="Double-click to rename"
+          >{{activeFile?.name||'untitled.md'}}</span
+        >
+        <input
+          v-else
+          class="rename-input"
+          ref="renameInputRef"
+          v-model="renameVal"
+          @blur="finishRename"
+          @keyup.enter="finishRename"
+          @keyup.escape="renamingFile=false"
+        />
+
+        <div class="tb-sep"></div>
+
+        <!-- View mode -->
+        <button
+          class="tb-icon"
+          :class="{active:viewMode==='split'}"
+          @click="viewMode='split'"
+          title="Split view"
+        >
+          <i class="ti ti-layout-columns"></i>
+        </button>
+        <button
+          class="tb-icon"
+          :class="{active:viewMode==='editor'}"
+          @click="viewMode='editor'"
+          title="Editor only"
+        >
+          <i class="ti ti-code"></i>
+        </button>
+        <button
+          class="tb-icon"
+          :class="{active:viewMode==='preview'}"
+          @click="viewMode='preview'"
+          title="Preview only"
+        >
+          <i class="ti ti-eye"></i>
+        </button>
+
+        <div class="tb-sep"></div>
+
+        <!-- Theme selector -->
+        <select class="tb-theme-sel" v-model="renderTheme" title="Render theme">
+          <option v-for="t in renderThemes" :key="t.id" :value="t.id">
+            {{t.name}}
+          </option>
+        </select>
+
+        <div class="tb-right">
+          <button class="tb-btn" @click="openImgManager">
+            <i class="ti ti-photo"></i>Images
+          </button>
+          <button class="tb-btn" @click="openTemplates">
+            <i class="ti ti-layout-grid"></i>Templates
+          </button>
+          <button class="tb-btn btn-export-main" @click="openExport">
+            <i class="ti ti-download"></i>Export
+          </button>
+          <div class="tb-sep"></div>
+          <button
+            class="tb-icon"
+            :class="{active:sidebarOpen}"
+            @click="sidebarOpen=!sidebarOpen"
+            title="Sidebar"
+          >
+            <i class="ti ti-layout-sidebar"></i>
+          </button>
+          <button
+            class="tb-icon"
+            :class="{active:showStylePanel}"
+            @click="showStylePanel=!showStylePanel"
+            title="Style customizer"
+          >
+            <i class="ti ti-palette"></i>
+          </button>
+          <button
+            class="tb-icon"
+            :class="{active:focusMode}"
+            @click="focusMode=true"
+            title="Focus mode"
+          >
+            <i class="ti ti-maximize"></i>
+          </button>
+          <button
+            class="tb-icon"
+            @click="toggleDark"
+            :title="darkMode?'Light mode':'Dark mode'"
+          >
+            <i :class="darkMode?'ti ti-sun':'ti ti-moon'"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- ── BODY ── -->
+      <div id="app-body">
+        <!-- SIDEBAR -->
+        <div id="sidebar" :class="{collapsed:!sidebarOpen}">
+          <!-- Files section -->
+          <div class="sidebar-section">
+            <div class="sidebar-title">
+              Files
+              <button
+                class="sb-btn"
+                style="width: auto; padding: 1px 4px"
+                @click="newFile"
+                title="New file"
+              >
+                <i class="ti ti-plus"></i>
+              </button>
+            </div>
+            <div
+              v-for="f in files"
+              :key="f.id"
+              class="file-item"
+              :class="{active:activeFileId===f.id}"
+              @click="switchFile(f.id)"
+              @contextmenu.prevent="openFileCtx($event,f)"
+            >
+              <i class="ti ti-file-text"></i>
+              <span class="file-name">{{f.name}}</span>
+              <button
+                class="file-del"
+                @click.stop="deleteFile(f.id)"
+                title="Delete"
+              >
+                <i class="ti ti-x"></i>
+              </button>
+            </div>
+            <button
+              class="sb-btn"
+              style="margin-top: 3px; color: var(--fg3)"
+              @click="triggerMdUpload"
+            >
+              <i class="ti ti-upload"></i> Upload .md
+            </button>
+          </div>
+
+          <!-- Scrollable area: templates + outline -->
+          <div class="sidebar-scroll">
+            <div class="sidebar-section" style="border: none">
+              <div class="sidebar-title">Templates</div>
+              <button
+                v-for="t in documentTemplates.slice(0,6)"
+                :key="t.id"
+                class="sb-btn"
+                @click="loadTemplate(t)"
+              >
+                <i :class="'ti '+t.icon"></i> {{t.name}}
+              </button>
+              <button
+                class="sb-btn"
+                style="color: var(--acc)"
+                @click="openTemplates"
+              >
+                <i class="ti ti-dots"></i> All templates…
+              </button>
+            </div>
+
+            <div class="sidebar-section" style="border: none; padding-top: 4px">
+              <div class="sidebar-title">Outline</div>
+              <div
+                v-if="!headings.length"
+                style="font-size: 11px; color: var(--fg3); padding: 2px 6px"
+              >
+                No headings
+              </div>
+              <div
+                v-for="h in headings"
+                :key="h.slug"
+                class="outline-item"
+                :style="{paddingLeft:(h.level-1)*10+6+'px'}"
+                @click="scrollToHeading(h.slug)"
+              >
+                <i
+                  class="ti ti-hash"
+                  style="font-size: 11px; opacity: 0.4; flex-shrink: 0"
+                ></i>
+                <span style="overflow: hidden; text-overflow: ellipsis"
+                  >{{h.text}}</span
+                >
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- MAIN AREA -->
+        <div id="main">
+          <!-- EDITOR PANE -->
+          <div
+            id="editor-pane"
+            :class="{hidden:viewMode==='preview'}"
+            :style="viewMode==='split'?{flex:'0 0 '+editorWidth+'px',minWidth:'200px'}:{flex:'1'}"
+          >
+            <div class="pane-toolbar">
+              <span class="pane-label">Editor</span>
+              <div class="tool-sep"></div>
+              <button
+                class="tool-btn"
+                @click="fmt('**','**')"
+                title="Bold (Ctrl+B)"
+              >
+                <i class="ti ti-bold"></i>
+              </button>
+              <button
+                class="tool-btn"
+                @click="fmt('*','*')"
+                title="Italic (Ctrl+I)"
+              >
+                <i class="ti ti-italic"></i>
+              </button>
+              <button
+                class="tool-btn"
+                @click="fmt('~~','~~')"
+                title="Strikethrough"
+              >
+                <i class="ti ti-strikethrough"></i>
+              </button>
+              <button
+                class="tool-btn"
+                @click="fmt('`','`')"
+                title="Inline code"
+              >
+                <i class="ti ti-code"></i>
+              </button>
+              <div class="tool-sep"></div>
+              <button class="tool-btn" @click="fmtLine('# ')" title="H1">
+                <i class="ti ti-h-1"></i>
+              </button>
+              <button class="tool-btn" @click="fmtLine('## ')" title="H2">
+                <i class="ti ti-h-2"></i>
+              </button>
+              <button class="tool-btn" @click="fmtLine('### ')" title="H3">
+                <i class="ti ti-h-3"></i>
+              </button>
+              <div class="tool-sep"></div>
+              <button class="tool-btn" @click="fmtLine('- ')" title="Bullet">
+                <i class="ti ti-list"></i>
+              </button>
+              <button class="tool-btn" @click="fmtLine('1. ')" title="Numbered">
+                <i class="ti ti-list-numbers"></i>
+              </button>
+              <button
+                class="tool-btn"
+                @click="fmtLine('> ')"
+                title="Blockquote"
+              >
+                <i class="ti ti-blockquote"></i>
+              </button>
+              <button
+                class="tool-btn"
+                @click="fmtBlock('```\n','\n```')"
+                title="Code block"
+              >
+                <i class="ti ti-terminal-2"></i>
+              </button>
+              <div class="tool-sep"></div>
+              <button class="tool-btn" @click="insertLink" title="Link">
+                <i class="ti ti-link"></i>
+              </button>
+              <button
+                class="tool-btn"
+                @click="insertImageFromLib"
+                title="Image"
+              >
+                <i class="ti ti-photo"></i>
+              </button>
+              <button class="tool-btn" @click="insertTable" title="Table">
+                <i class="ti ti-table"></i>
+              </button>
+              <button class="tool-btn" @click="fmtLine('---')" title="Divider">
+                <i class="ti ti-minus"></i>
+              </button>
+              <div class="tool-sep"></div>
+              <button class="tool-btn" @click="undo" title="Undo (Ctrl+Z)">
+                <i class="ti ti-arrow-back-up"></i>
+              </button>
+              <button class="tool-btn" @click="redo" title="Redo (Ctrl+Y)">
+                <i class="ti ti-arrow-forward-up"></i>
+              </button>
+              <div class="tool-sep"></div>
+              <button
+                class="tool-btn"
+                :class="{active:wordWrap}"
+                @click="wordWrap=!wordWrap"
+                title="Word wrap"
+              >
+                <i class="ti ti-text-wrap"></i>
+              </button>
+              <button
+                class="tool-btn"
+                @click="openFindReplace"
+                title="Find & Replace (Ctrl+H)"
+              >
+                <i class="ti ti-replace"></i>
+              </button>
+            </div>
+
+            <div id="editor-wrap" @contextmenu.prevent="openEditorCtx">
+              <textarea
+                id="editor-textarea"
+                ref="editorRef"
+                v-model="currentContent"
+                :style="{
+            whiteSpace:wordWrap?'pre-wrap':'pre',
+            fontFamily:monoFont,
+            fontSize:editorFontSize+'px',
+            lineHeight:editorLineHeight
+          }"
+                @keydown="onEditorKeydown"
+                @input="onInput"
+                spellcheck="false"
+                placeholder="# Start writing…&#10;&#10;Type your markdown here."
+              ></textarea>
+            </div>
+          </div>
+
+          <!-- RESIZER -->
+          <div
+            id="resizer"
+            v-show="viewMode==='split'"
+            @mousedown="startResize"
+          ></div>
+
+          <!-- PREVIEW PANE -->
+          <div id="preview-pane" :class="{hidden:viewMode==='editor'}">
+            <div class="pane-toolbar">
+              <span class="pane-label">Preview</span>
+              <div class="tool-sep"></div>
+              <span style="font-size: 11px; color: var(--fg2)"
+                >{{currentThemeName}}</span
+              >
+              <div style="margin-left: auto; display: flex; gap: 3px">
+                <button
+                  class="tool-btn"
+                  @click="showStylePanel=!showStylePanel"
+                  :class="{active:showStylePanel}"
+                  title="Customize style"
+                >
+                  <i class="ti ti-adjustments-horizontal"></i>
+                </button>
+                <button class="tool-btn" @click="copyHtml" title="Copy HTML">
+                  <i class="ti ti-copy"></i>
+                </button>
+                <button class="tool-btn" @click="openExport" title="Export">
+                  <i class="ti ti-download"></i>
+                </button>
+              </div>
+            </div>
+            <div id="preview-scroller" @contextmenu.prevent="openPreviewCtx">
+              <div
+                id="preview-page"
+                :class="['md-body','theme-'+renderTheme]"
+                :style="previewPageStyle"
+                v-html="renderedHtml"
+              ></div>
+            </div>
+          </div>
+
+          <!-- STYLE PANEL -->
+          <transition name="slide-r">
+            <div
+              id="style-panel-wrap"
+              class="style-panel"
+              v-if="showStylePanel"
+            >
+              <div
+                style="
+                  height: 36px;
+                  min-height: 36px;
+                  display: flex;
+                  align-items: center;
+                  justify-content: space-between;
+                  padding: 0 12px;
+                  border-bottom: 1px solid var(--border);
+                  flex-shrink: 0;
+                "
+              >
+                <span
+                  style="
+                    font-size: 12px;
+                    font-weight: 600;
+                    display: flex;
+                    align-items: center;
+                    gap: 5px;
+                  "
+                  ><i class="ti ti-palette" style="color: var(--acc)"></i>
+                  Style</span
+                >
+                <button class="tool-btn" @click="showStylePanel=false">
+                  <i class="ti ti-x"></i>
+                </button>
+              </div>
+              <div class="style-panel-body">
+                <div class="sp-section">
+                  <div class="sp-title">Body font</div>
+                  <div>
+                    <span
+                      v-for="f in fontChoices"
+                      :key="f.val"
+                      class="font-chip"
+                      :class="{active:customFont===f.val}"
+                      :style="{fontFamily:f.val}"
+                      @click="customFont=f.val"
+                      >{{f.name}}</span
+                    >
+                  </div>
+                </div>
+                <div class="sp-section">
+                  <div class="sp-title">Typography</div>
+                  <div class="slider-row">
+                    <label>Font size</label
+                    ><input
+                      type="range"
+                      min="12"
+                      max="22"
+                      v-model.number="cFontSize"
+                    /><span class="val">{{cFontSize}}px</span>
+                  </div>
+                  <div class="slider-row">
+                    <label>Line height</label
+                    ><input
+                      type="range"
+                      min="1.2"
+                      max="2.4"
+                      step=".05"
+                      v-model.number="cLineH"
+                    /><span class="val">{{cLineH.toFixed(1)}}</span>
+                  </div>
+                  <div class="slider-row">
+                    <label>Para gap</label
+                    ><input
+                      type="range"
+                      min="0"
+                      max="2"
+                      step=".1"
+                      v-model.number="cParaGap"
+                    /><span class="val">{{cParaGap.toFixed(1)}}em</span>
+                  </div>
+                </div>
+                <div class="sp-section">
+                  <div class="sp-title">Headings</div>
+                  <div>
+                    <span
+                      v-for="f in fontChoices"
+                      :key="f.val"
+                      class="font-chip"
+                      :class="{active:cHeadFont===f.val}"
+                      :style="{fontFamily:f.val}"
+                      @click="cHeadFont=f.val"
+                      >{{f.name}}</span
+                    >
+                  </div>
+                  <div class="slider-row" style="margin-top: 6px">
+                    <label>H1 size</label
+                    ><input
+                      type="range"
+                      min="1.2"
+                      max="4"
+                      step=".05"
+                      v-model.number="cH1"
+                    /><span class="val">{{cH1.toFixed(1)}}em</span>
+                  </div>
+                  <div class="slider-row">
+                    <label>H2 size</label
+                    ><input
+                      type="range"
+                      min="1"
+                      max="3"
+                      step=".05"
+                      v-model.number="cH2"
+                    /><span class="val">{{cH2.toFixed(1)}}em</span>
+                  </div>
+                </div>
+                <div class="sp-section">
+                  <div class="sp-title">Page</div>
+                  <div class="slider-row">
+                    <label>Max width</label
+                    ><input
+                      type="range"
+                      min="400"
+                      max="1000"
+                      step="10"
+                      v-model.number="cWidth"
+                    /><span class="val">{{cWidth}}px</span>
+                  </div>
+                  <div class="slider-row">
+                    <label>Padding H</label
+                    ><input
+                      type="range"
+                      min="12"
+                      max="120"
+                      step="4"
+                      v-model.number="cPadH"
+                    /><span class="val">{{cPadH}}px</span>
+                  </div>
+                  <div class="slider-row">
+                    <label>Padding V</label
+                    ><input
+                      type="range"
+                      min="12"
+                      max="120"
+                      step="4"
+                      v-model.number="cPadV"
+                    /><span class="val">{{cPadV}}px</span>
+                  </div>
+                </div>
+                <div class="sp-section">
+                  <div class="sp-title">Colors</div>
+                  <div class="color-row">
+                    <label>Body text</label
+                    ><input type="color" v-model="cColorText" /><span
+                      style="font-size: 10px; color: var(--fg3)"
+                      >{{cColorText||'theme'}}</span
+                    >
+                  </div>
+                  <div class="color-row">
+                    <label>Headings</label
+                    ><input type="color" v-model="cColorHead" /><span
+                      style="font-size: 10px; color: var(--fg3)"
+                      >{{cColorHead||'theme'}}</span
+                    >
+                  </div>
+                  <div class="color-row">
+                    <label>Links</label
+                    ><input type="color" v-model="cColorLink" /><span
+                      style="font-size: 10px; color: var(--fg3)"
+                      >{{cColorLink||'theme'}}</span
+                    >
+                  </div>
+                  <div class="color-row">
+                    <label>Background</label
+                    ><input type="color" v-model="cColorBg" /><span
+                      style="font-size: 10px; color: var(--fg3)"
+                      >{{cColorBg||'theme'}}</span
+                    >
+                  </div>
+                </div>
+                <div
+                  class="sp-section"
+                  style="display: flex; flex-direction: column; gap: 6px"
+                >
+                  <button
+                    class="btn btn-sm"
+                    @click="resetStyle"
+                    style="width: 100%"
+                  >
+                    <i class="ti ti-refresh"></i> Reset to theme
+                  </button>
+                  <button
+                    class="btn btn-sm btn-primary"
+                    @click="saveAsTheme"
+                    style="width: 100%"
+                  >
+                    <i class="ti ti-bookmark"></i> Save as template
+                  </button>
+                </div>
+              </div>
+            </div>
+          </transition>
+        </div>
+        <!-- /#main -->
+      </div>
+      <!-- /#app-body -->
+
+      <!-- STATUS BAR -->
+      <div id="statusbar">
+        <span>
+          <span
+            class="status-dot"
+            :style="{background:unsaved?'var(--warn)':'var(--suc)'}"
+          ></span>
+          {{unsaved?'Unsaved':'Saved'}}
+        </span>
+        <span
+          ><i
+            class="ti ti-letter-case"
+            style="font-size: 11px; margin-right: 2px"
+          ></i
+          >{{wordCount}} words</span
+        >
+        <span>{{charCount}} chars · {{lineCount}} lines</span>
+        <span v-if="readTime > 0"
+          ><i class="ti ti-clock" style="font-size: 11px; margin-right: 2px"></i
+          >~{{readTime}} min read</span
+        >
+        <span style="margin-left: auto"
+          >{{activeFile?.name||'untitled.md'}} · {{currentThemeName}}</span
+        >
+        <span
+          style="cursor: pointer; color: var(--acc)"
+          @click="showKeyboardShortcuts=true"
+          title="Keyboard shortcuts"
+          >⌨ Shortcuts</span
+        >
+      </div>
+
+      <!-- ═══════════════ MODALS ═══════════════ -->
+
+      <!-- EXPORT Modal -->
+      <div
+        class="modal-overlay"
+        v-if="showExport"
+        @click.self="showExport=false"
+      >
+        <div class="modal-box modal-wide">
+          <div class="modal-header">
+            <div class="modal-title">
+              <i class="ti ti-download"></i> Export Document
+            </div>
+            <button class="modal-close" @click="showExport=false">
+              <i class="ti ti-x"></i>
+            </button>
+          </div>
+
+          <div class="export-grid">
+            <div
+              class="export-card featured"
+              @click="showPdfSettings=!showPdfSettings"
+              :class="{active:showPdfSettings}"
+            >
+              <i class="ti ti-file-type-pdf"></i>
+              <div class="export-card-name">PDF</div>
+              <div class="export-card-desc">Multi-page, print-ready</div>
+            </div>
+            <div class="export-card" @click="exportMarkdown">
+              <i class="ti ti-markdown"></i>
+              <div class="export-card-name">Markdown</div>
+              <div class="export-card-desc">Original .md source</div>
+            </div>
+            <div class="export-card" @click="exportHTML">
+              <i class="ti ti-brand-html5"></i>
+              <div class="export-card-name">HTML</div>
+              <div class="export-card-desc">Standalone web page</div>
+            </div>
+            <div class="export-card" @click="exportDocx">
+              <i class="ti ti-file-word"></i>
+              <div class="export-card-name">Word (.doc)</div>
+              <div class="export-card-desc">MS Word compatible</div>
+            </div>
+            <div class="export-card" @click="exportTxt">
+              <i class="ti ti-file-text"></i>
+              <div class="export-card-name">Plain Text</div>
+              <div class="export-card-desc">No formatting</div>
+            </div>
+            <div class="export-card" @click="exportJSON">
+              <i class="ti ti-braces"></i>
+              <div class="export-card-name">JSON</div>
+              <div class="export-card-desc">Doc + metadata</div>
+            </div>
+          </div>
+
+          <!-- PDF Settings -->
+          <div class="pdf-settings" v-if="showPdfSettings">
+            <div class="pdf-settings-title">
+              <i class="ti ti-settings" style="margin-right: 4px"></i>PDF Export
+              Settings
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">Paper size</label>
+                <select v-model="pdfPaperSize">
+                  <option value="A4">A4 (210×297mm)</option>
+                  <option value="Letter">Letter (216×279mm)</option>
+                  <option value="Legal">Legal (216×356mm)</option>
+                  <option value="A3">A3 (297×420mm)</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Orientation</label>
+                <select v-model="pdfOrientation">
+                  <option value="portrait">Portrait</option>
+                  <option value="landscape">Landscape</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">Margins</label>
+                <select v-model="pdfMargins">
+                  <option value="normal">Normal (2cm)</option>
+                  <option value="narrow">Narrow (1cm)</option>
+                  <option value="wide">Wide (3cm)</option>
+                  <option value="none">None</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Scale</label>
+                <select v-model="pdfScale">
+                  <option value="100">100%</option>
+                  <option value="90">90%</option>
+                  <option value="80">80%</option>
+                  <option value="75">75%</option>
+                </select>
+              </div>
+            </div>
+            <div
+              style="
+                display: flex;
+                gap: 16px;
+                font-size: 12px;
+                margin-bottom: 8px;
+              "
+            >
+              <label
+                ><input
+                  type="checkbox"
+                  v-model="pdfHeaders"
+                  style="width: auto; margin-right: 5px"
+                />Headers/footers</label
+              >
+              <label
+                ><input
+                  type="checkbox"
+                  v-model="pdfBg"
+                  style="width: auto; margin-right: 5px"
+                />Background graphics</label
+              >
+              <label
+                ><input
+                  type="checkbox"
+                  v-model="pdfLinks"
+                  style="width: auto; margin-right: 5px"
+                />Clickable links</label
+              >
+            </div>
+            <div
+              style="
+                background: var(--bg3);
+                border-radius: 6px;
+                padding: 8px 10px;
+                font-size: 11px;
+                color: var(--fg2);
+                margin-bottom: 8px;
+              "
+            >
+              <i
+                class="ti ti-info-circle"
+                style="margin-right: 4px; color: var(--acc)"
+              ></i>
+              PDF is exported via browser print dialog with your settings
+              applied. All pages of the document will be included.
+            </div>
+            <button
+              class="btn btn-primary"
+              style="width: 100%"
+              @click="exportPDF"
+            >
+              <i class="ti ti-file-type-pdf"></i> Export PDF Now
+            </button>
+          </div>
+
+          <!-- Metadata -->
+          <div
+            style="
+              border-top: 1px solid var(--border);
+              padding-top: 14px;
+              margin-top: 6px;
+            "
+          >
+            <div
+              style="
+                font-size: 11px;
+                font-weight: 600;
+                text-transform: uppercase;
+                letter-spacing: 0.07em;
+                color: var(--fg3);
+                margin-bottom: 10px;
+              "
+            >
+              Document Metadata
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">Title</label>
+                <input v-model="exportTitle" placeholder="Document title" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Author</label>
+                <input v-model="exportAuthor" placeholder="Author name" />
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">Keywords</label>
+                <input
+                  v-model="exportKeywords"
+                  placeholder="comma, separated"
+                />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Date</label>
+                <input v-model="exportDate" type="date" />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- IMAGE MANAGER -->
+      <div
+        class="modal-overlay"
+        v-if="showImgManager"
+        @click.self="showImgManager=false"
+      >
+        <div class="modal-box modal-wide">
+          <div class="modal-header">
+            <div class="modal-title">
+              <i class="ti ti-photo"></i> Image Manager
+            </div>
+            <button class="modal-close" @click="showImgManager=false">
+              <i class="ti ti-x"></i>
+            </button>
+          </div>
+          <div
+            style="
+              display: flex;
+              align-items: center;
+              gap: 8px;
+              margin-bottom: 12px;
+              flex-wrap: wrap;
+            "
+          >
+            <button class="btn btn-primary btn-sm" @click="triggerImgUpload">
+              <i class="ti ti-upload"></i> Upload images
+            </button>
+            <input
+              ref="imgFileInput"
+              type="file"
+              accept="image/*"
+              multiple
+              style="display: none"
+              @change="onImgUpload"
+            />
+            <button
+              class="btn btn-sm"
+              @click="insertSelected"
+              :disabled="!selectedImgs.length"
+            >
+              <i class="ti ti-plus"></i> Insert ({{selectedImgs.length}})
+            </button>
+            <button
+              class="btn btn-sm"
+              v-if="selectedImgs.length"
+              @click="deleteSelected"
+              style="color: var(--err)"
+            >
+              <i class="ti ti-trash"></i> Delete
+            </button>
+            <span style="margin-left: auto; font-size: 11px; color: var(--fg3)"
+              >{{images.length}} image(s) · Click to select</span
+            >
+          </div>
+          <div
+            v-if="!images.length"
+            style="text-align: center; padding: 48px; color: var(--fg3)"
+          >
+            <i
+              class="ti ti-photo-off"
+              style="
+                font-size: 42px;
+                display: block;
+                margin-bottom: 10px;
+                opacity: 0.4;
+              "
+            ></i>
+            No images yet — upload some above
+          </div>
+          <div v-else class="img-grid">
+            <div
+              v-for="img in images"
+              :key="img.id"
+              class="img-card"
+              :class="{selected:selectedImgs.includes(img.id)}"
+              @click="toggleImgSel(img.id)"
+            >
+              <div v-if="selectedImgs.includes(img.id)" class="img-sel-badge">
+                <i class="ti ti-check" style="font-size: 10px"></i>
+              </div>
+              <img
+                :src="img.data"
+                :alt="img.name"
+                style="pointer-events: none"
+              />
+              <div class="img-card-info" :title="img.name">{{img.name}}</div>
+              <div
+                class="img-card-info"
+                style="color: var(--fg3); padding-top: 0"
+              >
+                {{img.width}}×{{img.height}}
+              </div>
+              <div class="img-card-actions">
+                <button @click.stop="openCrop(img)" title="Crop">
+                  <i class="ti ti-crop"></i>
+                </button>
+                <button @click.stop="openResize(img)" title="Resize">
+                  <i class="ti ti-resize"></i>
+                </button>
+                <button
+                  @click.stop="insertOneImage(img);showImgManager=false"
+                  title="Insert"
+                >
+                  <i class="ti ti-plus"></i>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- RESIZE Modal -->
+      <div
+        class="modal-overlay"
+        v-if="showResize"
+        @click.self="showResize=false"
+      >
+        <div class="modal-box" style="width: 380px">
+          <div class="modal-header">
+            <div class="modal-title">
+              <i class="ti ti-resize"></i> Resize Image
+            </div>
+            <button class="modal-close" @click="showResize=false">
+              <i class="ti ti-x"></i>
+            </button>
+          </div>
+          <div v-if="resizeTgt">
+            <img
+              :src="resizeTgt.data"
+              style="
+                width: 100%;
+                max-height: 170px;
+                object-fit: contain;
+                background: var(--bg2);
+                border-radius: var(--rad);
+                margin-bottom: 12px;
+              "
+            />
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">Width (px)</label
+                ><input
+                  type="number"
+                  v-model.number="resW"
+                  @input="onRW"
+                  min="1"
+                />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Height (px)</label
+                ><input
+                  type="number"
+                  v-model.number="resH"
+                  @input="onRH"
+                  min="1"
+                />
+              </div>
+            </div>
+            <div
+              style="
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                margin-bottom: 10px;
+                font-size: 12px;
+              "
+            >
+              <input
+                type="checkbox"
+                id="lock-ar"
+                v-model="resLock"
+                style="width: auto"
+              />
+              <label for="lock-ar">Lock aspect ratio</label>
+            </div>
+            <div class="form-group">
+              <label class="form-label"
+                >Quality: {{Math.round(resQ*100)}}%</label
+              >
+              <input
+                type="range"
+                min=".1"
+                max="1"
+                step=".05"
+                v-model.number="resQ"
+              />
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn" @click="showResize=false">Cancel</button>
+            <button class="btn btn-primary" @click="applyResize">Apply</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- CROP Modal -->
+      <div class="modal-overlay" v-if="showCrop" @click.self="showCrop=false">
+        <div class="modal-box" style="width: 580px">
+          <div class="modal-header">
+            <div class="modal-title"><i class="ti ti-crop"></i> Crop Image</div>
+            <button class="modal-close" @click="showCrop=false">
+              <i class="ti ti-x"></i>
+            </button>
+          </div>
+          <div v-if="cropTgt">
+            <div
+              style="
+                display: flex;
+                gap: 6px;
+                flex-wrap: wrap;
+                margin-bottom: 8px;
+              "
+            >
+              <button
+                v-for="p in cropPresets"
+                :key="p"
+                class="btn btn-sm"
+                @click="applyCropPreset(p)"
+              >
+                {{p}}
+              </button>
+              <button
+                class="btn btn-sm"
+                @click="cropX=0;cropY=0;cropW=cropTgt.width;cropH=cropTgt.height"
+              >
+                Reset
+              </button>
+            </div>
+            <div
+              class="crop-wrap"
+              ref="cropWrapRef"
+              @mousedown.prevent="onCropMouseDown"
+              style="line-height: 0"
+            >
+              <img
+                :src="cropTgt.data"
+                ref="cropImgRef"
+                style="
+                  max-width: 100%;
+                  max-height: 320px;
+                  margin: 0 auto;
+                  display: block;
+                "
+                @load="initCropDisplay"
+              />
+              <div
+                v-if="cropDisplayRect"
+                class="crop-sel"
+                :style="cropDisplayRect"
+              ></div>
+            </div>
+            <div
+              style="
+                display: grid;
+                grid-template-columns: repeat(4, 1fr);
+                gap: 8px;
+                margin-top: 10px;
+              "
+            >
+              <div class="form-group">
+                <label class="form-label">X</label
+                ><input type="number" v-model.number="cropX" min="0" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Y</label
+                ><input type="number" v-model.number="cropY" min="0" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Width</label
+                ><input type="number" v-model.number="cropW" min="1" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Height</label
+                ><input type="number" v-model.number="cropH" min="1" />
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn" @click="showCrop=false">Cancel</button>
+            <button class="btn btn-primary" @click="applyCrop">
+              Apply Crop
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- TEMPLATES Modal -->
+      <div
+        class="modal-overlay"
+        v-if="showTemplates"
+        @click.self="showTemplates=false"
+      >
+        <div class="modal-box modal-wide">
+          <div class="modal-header">
+            <div class="modal-title">
+              <i class="ti ti-layout-grid"></i> Templates
+            </div>
+            <button class="modal-close" @click="showTemplates=false">
+              <i class="ti ti-x"></i>
+            </button>
+          </div>
+          <div class="tab-bar">
+            <div
+              class="tab"
+              :class="{active:tplTab==='builtin'}"
+              @click="tplTab='builtin'"
+            >
+              Built-in ({{documentTemplates.length}})
+            </div>
+            <div
+              class="tab"
+              :class="{active:tplTab==='custom'}"
+              @click="tplTab='custom'"
+            >
+              My Templates ({{userTemplates.length}})
+            </div>
+          </div>
+          <div style="margin-top: 14px">
+            <div v-if="tplTab==='builtin'" class="template-grid">
+              <div
+                v-for="t in documentTemplates"
+                :key="t.id"
+                class="template-card"
+                @click="loadTemplate(t);showTemplates=false"
+              >
+                <div class="template-icon"><i :class="'ti '+t.icon"></i></div>
+                <div class="template-name">{{t.name}}</div>
+                <div class="template-desc">{{t.desc}}</div>
+              </div>
+            </div>
+            <div v-else>
+              <div
+                v-if="!userTemplates.length"
+                style="text-align: center; padding: 40px; color: var(--fg3)"
+              >
+                <i
+                  class="ti ti-bookmark-off"
+                  style="
+                    font-size: 36px;
+                    display: block;
+                    margin-bottom: 8px;
+                    opacity: 0.4;
+                  "
+                ></i>
+                Save the current document as a template to see it here
+              </div>
+              <div v-else class="template-grid">
+                <div
+                  v-for="t in userTemplates"
+                  :key="t.id"
+                  class="template-card"
+                  style="cursor: default"
+                >
+                  <div class="template-name">{{t.name}}</div>
+                  <div class="template-desc">
+                    {{t.desc||'Custom template'}} · {{t.theme}}
+                  </div>
+                  <div style="display: flex; gap: 5px; margin-top: 8px">
+                    <button
+                      class="btn btn-sm btn-primary"
+                      @click="loadUserTemplate(t);showTemplates=false"
+                    >
+                      <i class="ti ti-download"></i> Use
+                    </button>
+                    <button
+                      class="btn btn-sm"
+                      @click="deleteUserTpl(t.id)"
+                      style="color: var(--err)"
+                    >
+                      <i class="ti ti-trash"></i>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SAVE TEMPLATE Modal -->
+      <div
+        class="modal-overlay"
+        v-if="showSaveTpl"
+        @click.self="showSaveTpl=false"
+      >
+        <div class="modal-box" style="width: 400px">
+          <div class="modal-header">
+            <div class="modal-title">
+              <i class="ti ti-bookmark-plus"></i> Save as Template
+            </div>
+            <button class="modal-close" @click="showSaveTpl=false">
+              <i class="ti ti-x"></i>
+            </button>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Template name *</label
+            ><input
+              v-model="newTplName"
+              placeholder="My Research Template"
+              @keyup.enter="saveAsUserTemplate"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Description</label
+            ><input v-model="newTplDesc" placeholder="Brief description…" />
+          </div>
+          <div
+            style="
+              display: flex;
+              align-items: center;
+              gap: 8px;
+              margin-bottom: 12px;
+              font-size: 12px;
+            "
+          >
+            <input
+              type="checkbox"
+              id="tpl-incl"
+              v-model="tplInclude"
+              style="width: auto"
+            />
+            <label for="tpl-incl">Include current markdown content</label>
+          </div>
+          <div class="modal-footer">
+            <button class="btn" @click="showSaveTpl=false">Cancel</button>
+            <button class="btn btn-primary" @click="saveAsUserTemplate">
+              Save Template
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- FIND/REPLACE Modal -->
+      <div class="modal-overlay" v-if="showFR" @click.self="showFR=false">
+        <div class="modal-box" style="width: 440px">
+          <div class="modal-header">
+            <div class="modal-title">
+              <i class="ti ti-replace"></i> Find & Replace
+            </div>
+            <button class="modal-close" @click="showFR=false">
+              <i class="ti ti-x"></i>
+            </button>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Find</label
+            ><input
+              v-model="frFind"
+              @keyup.enter="frDoFind"
+              placeholder="Search text…"
+              ref="frFindRef"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Replace with</label
+            ><input
+              v-model="frReplace"
+              @keyup.enter="frReplaceOne"
+              placeholder="Replacement text…"
+            />
+          </div>
+          <div
+            style="
+              display: flex;
+              gap: 14px;
+              font-size: 12px;
+              margin-bottom: 10px;
+            "
+          >
+            <label
+              ><input
+                type="checkbox"
+                v-model="frCase"
+                style="width: auto; margin-right: 4px"
+              />Case sensitive</label
+            >
+            <label
+              ><input
+                type="checkbox"
+                v-model="frRegex"
+                style="width: auto; margin-right: 4px"
+              />Regex</label
+            >
+            <label
+              ><input
+                type="checkbox"
+                v-model="frWhole"
+                style="width: auto; margin-right: 4px"
+              />Whole word</label
+            >
+          </div>
+          <div
+            v-if="frCount!==null"
+            style="
+              font-size: 12px;
+              color: var(--fg2);
+              margin-bottom: 8px;
+              padding: 6px 10px;
+              background: var(--bg2);
+              border-radius: 6px;
+            "
+          >
+            <i class="ti ti-search" style="margin-right: 4px"></i>{{frCount}}
+            match{{frCount!==1?'es':''}} found
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-sm" @click="frDoFind">
+              <i class="ti ti-search"></i> Find all
+            </button>
+            <button class="btn btn-sm" @click="frReplaceOne">
+              <i class="ti ti-replace"></i> Replace
+            </button>
+            <button class="btn btn-sm btn-primary" @click="frReplaceAll">
+              <i class="ti ti-replace-filled"></i> Replace all
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- KEYBOARD SHORTCUTS Modal -->
+      <div
+        class="modal-overlay"
+        v-if="showKeyboardShortcuts"
+        @click.self="showKeyboardShortcuts=false"
+      >
+        <div class="modal-box" style="width: 480px">
+          <div class="modal-header">
+            <div class="modal-title">
+              <i class="ti ti-keyboard"></i> Keyboard Shortcuts
+            </div>
+            <button class="modal-close" @click="showKeyboardShortcuts=false">
+              <i class="ti ti-x"></i>
+            </button>
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0">
+            <div
+              v-for="(sc,i) in shortcuts"
+              :key="i"
+              style="
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding: 6px 8px;
+                border-bottom: 1px solid var(--border);
+                font-size: 12px;
+              "
+              :style="{gridColumn:sc.wide?'1/-1':'auto'}"
+            >
+              <span style="color: var(--fg1)">{{sc.desc}}</span>
+              <kbd
+                style="
+                  font-family: var(--font-mono);
+                  font-size: 10px;
+                  background: var(--bg2);
+                  padding: 2px 6px;
+                  border-radius: 4px;
+                  border: 1px solid var(--border);
+                  color: var(--fg0);
+                "
+                >{{sc.key}}</kbd
+              >
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- FOCUS MODE -->
+      <transition name="fade">
+        <div v-if="focusMode" class="focus-overlay">
+          <div class="focus-toolbar">
+            <button
+              class="tb-btn"
+              @click="openExport"
+              style="background: var(--bg2)"
+            >
+              <i class="ti ti-download"></i>
+            </button>
+            <button
+              class="tb-btn"
+              @click="focusMode=false"
+              style="background: var(--bg2)"
+            >
+              <i class="ti ti-minimize"></i> Exit
+            </button>
+          </div>
+          <div class="focus-content">
+            <div
+              class="focus-inner md-body"
+              :class="'theme-'+renderTheme"
+              :style="previewPageStyle"
+              v-html="renderedHtml"
+            ></div>
+          </div>
+        </div>
+      </transition>
+
+      <!-- CONTEXT MENU -->
+      <div
+        id="ctx-menu"
+        v-if="ctxMenu.show"
+        :style="{left:ctxMenu.x+'px',top:ctxMenu.y+'px'}"
+        @click.stop
+        @mouseleave="scheduleCloseCtx"
+      >
+        <div v-if="ctxMenu.type==='editor'">
+          <div class="ctx-label">Format</div>
+          <div class="ctx-item" @click="fmt('**','**');closeCtx()">
+            <i class="ti ti-bold"></i> Bold
+            <span class="ctx-shortcut">Ctrl+B</span>
+          </div>
+          <div class="ctx-item" @click="fmt('*','*');closeCtx()">
+            <i class="ti ti-italic"></i> Italic
+            <span class="ctx-shortcut">Ctrl+I</span>
+          </div>
+          <div class="ctx-item" @click="fmt('`','`');closeCtx()">
+            <i class="ti ti-code"></i> Inline code
+          </div>
+          <div class="ctx-item" @click="fmtLine('> ');closeCtx()">
+            <i class="ti ti-blockquote"></i> Blockquote
+          </div>
+          <div class="ctx-sep"></div>
+          <div class="ctx-label">Insert</div>
+          <div class="ctx-item" @click="insertLink();closeCtx()">
+            <i class="ti ti-link"></i> Link…
+          </div>
+          <div class="ctx-item" @click="insertImageFromLib();closeCtx()">
+            <i class="ti ti-photo"></i> Image…
+          </div>
+          <div class="ctx-item" @click="insertTable();closeCtx()">
+            <i class="ti ti-table"></i> Table
+          </div>
+          <div class="ctx-item" @click="fmtLine('---');closeCtx()">
+            <i class="ti ti-minus"></i> Divider
+          </div>
+          <div class="ctx-sep"></div>
+          <div class="ctx-item" @click="doSelectAll();closeCtx()">
+            <i class="ti ti-select-all"></i> Select all
+            <span class="ctx-shortcut">Ctrl+A</span>
+          </div>
+          <div class="ctx-item" @click="doCopy();closeCtx()">
+            <i class="ti ti-copy"></i> Copy
+            <span class="ctx-shortcut">Ctrl+C</span>
+          </div>
+          <div class="ctx-item" @click="doPaste();closeCtx()">
+            <i class="ti ti-clipboard"></i> Paste
+            <span class="ctx-shortcut">Ctrl+V</span>
+          </div>
+          <div class="ctx-sep"></div>
+          <div class="ctx-item" @click="openFindReplace();closeCtx()">
+            <i class="ti ti-replace"></i> Find & Replace
+            <span class="ctx-shortcut">Ctrl+H</span>
+          </div>
+          <div
+            class="ctx-item"
+            @click="clearEditor();closeCtx()"
+            class="danger"
+          >
+            <i class="ti ti-trash"></i> Clear editor
+          </div>
+        </div>
+        <div v-else-if="ctxMenu.type==='preview'">
+          <div class="ctx-label">Preview</div>
+          <div class="ctx-item" @click="copyHtml();closeCtx()">
+            <i class="ti ti-copy"></i> Copy HTML
+          </div>
+          <div class="ctx-item" @click="copyText();closeCtx()">
+            <i class="ti ti-file-text"></i> Copy plain text
+          </div>
+          <div class="ctx-sep"></div>
+          <div class="ctx-label">Export</div>
+          <div class="ctx-item" @click="exportPDF();closeCtx()">
+            <i class="ti ti-file-type-pdf"></i> Export PDF
+          </div>
+          <div class="ctx-item" @click="exportHTML();closeCtx()">
+            <i class="ti ti-brand-html5"></i> Export HTML
+          </div>
+          <div class="ctx-item" @click="exportMarkdown();closeCtx()">
+            <i class="ti ti-markdown"></i> Export Markdown
+          </div>
+          <div class="ctx-sep"></div>
+          <div class="ctx-item" @click="focusMode=true;closeCtx()">
+            <i class="ti ti-maximize"></i> Focus / Read mode
+          </div>
+        </div>
+        <div v-else-if="ctxMenu.type==='file'">
+          <div class="ctx-item" @click="switchFile(ctxMenu.fileId);closeCtx()">
+            <i class="ti ti-file-text"></i> Open
+          </div>
+          <div
+            class="ctx-item"
+            @click="startRenameById(ctxMenu.fileId);closeCtx()"
+          >
+            <i class="ti ti-pencil"></i> Rename
+          </div>
+          <div
+            class="ctx-item"
+            @click="duplicateFile(ctxMenu.fileId);closeCtx()"
+          >
+            <i class="ti ti-copy"></i> Duplicate
+          </div>
+          <div
+            class="ctx-item"
+            @click="exportSingle(ctxMenu.fileId,'md');closeCtx()"
+          >
+            <i class="ti ti-download"></i> Download as .md
+          </div>
+          <div class="ctx-sep"></div>
+          <div
+            class="ctx-item danger"
+            @click="deleteFile(ctxMenu.fileId);closeCtx()"
+          >
+            <i class="ti ti-trash"></i> Delete
+          </div>
+        </div>
+      </div>
+
+      <!-- NOTIFICATIONS -->
+      <div id="notif-area">
+        <div
+          v-for="n in notifications"
+          :key="n.id"
+          class="notif"
+          :class="n.type"
+        >
+          <i
+            :class="n.type==='success'?'ti ti-circle-check':n.type==='error'?'ti ti-alert-circle':n.type==='warn'?'ti ti-alert-triangle':'ti ti-info-circle'"
+          ></i>
+          {{n.msg}}
+        </div>
+      </div>
+    </div>
+    <!-- #vue-root -->
+
+    <script>
+      const { createApp, ref, computed, watch, onMounted, nextTick } = Vue;
+
+      /* ─── Demo content ─── */
+      const DEMO = `# Welcome to Markdown Studio
+
+## A powerful markdown editor
+
+Write in **Markdown**, preview in beautiful publication-ready styles — choose from *Research Paper*, *LaTeX*, *CV*, *Editorial*, and more.
+
+### Quick start
+
+1. Pick a **render theme** from the dropdown above
+2. Use the toolbar or right-click for formatting shortcuts
+3. Click **Export** to download as PDF, HTML, Word, or Markdown
+4. Open the **palette icon** to customize fonts, colors and spacing
+
+---
+
+### Code example
+
+\`\`\`javascript
+function greet(name) {
+  return \`Hello, \${name}!\`;
+}
+console.log(greet('World'));
+\`\`\`
+
+### A table
+
+| Theme | Best for | Typography |
+|-------|----------|------------|
+| Research | Academic papers | Crimson Pro serif |
+| CV | Résumés | Raleway sans |
+| LaTeX | Mathematics | Georgia serif |
+| Editorial | Magazines | Playfair Display |
+
+> **Tip:** Right-click anywhere for contextual actions. Press **Ctrl+H** for find & replace.
+
+---
+
+*Paste long documents — the layout will stay stable. All pages export correctly to PDF.*
+`;
+
+      /* ─── Templates ─── */
+      const TEMPLATES = [
+        {
+          id: "research",
+          name: "Research Paper",
+          icon: "ti-school",
+          desc: "Academic with abstract, citations",
+          theme: "research",
+          content: `# Paper Title\n\n**Author Name** · Institution · Date\n\n---\n\n## Abstract\n\nWrite your abstract here.\n\n## 1. Introduction\n\nIntroduce your topic here.\n\n## 2. Methodology\n\nDescribe your methods.\n\n## 3. Results\n\nPresent your findings.\n\n## 4. Discussion\n\nAnalyze and interpret.\n\n## 5. Conclusion\n\nSummarize contributions.\n\n## References\n\n1. Author, A. (Year). *Title*. Journal, vol(issue), pp.\n`,
+        },
+        {
+          id: "cv",
+          name: "Professional CV",
+          icon: "ti-id-badge",
+          desc: "Clean résumé format",
+          theme: "cv",
+          content: `# Your Name\n\n> email@example.com · +1 234 567 8900 · City, Country\n\n## Profile\n\nResults-driven professional with X years in [field].\n\n## Experience\n\n### Job Title · Company Name\n#### Month Year – Present\n\n- Achievement with measurable outcome\n- Leadership or key contribution\n\n## Education\n\n### Degree · University\n#### Year – Year\n\n## Skills\n\n**Technical:** Skill 1 · Skill 2 · Skill 3\n\n## Languages\n\nEnglish (Native) · French (Fluent)\n`,
+        },
+        {
+          id: "scientific",
+          name: "Scientific Report",
+          icon: "ti-flask",
+          desc: "Lab report / experiment",
+          theme: "scientific",
+          content: `# Experiment Title\n\n**Institution** · Date\n\n---\n\n## 1. Objective\n\nState the hypothesis.\n\n## 2. Materials & Methods\n\n### Materials\n\n- Item 1\n- Item 2\n\n### Procedure\n\n1. Step one\n2. Step two\n\n## 3. Results\n\n| Time | Measurement | Note |\n|------|-------------|------|\n| 0    | baseline    | —    |\n\n## 4. Discussion\n\nAnalyze the data.\n\n## 5. Conclusion\n\nSummarize findings.\n`,
+        },
+        {
+          id: "latex",
+          name: "LaTeX Style",
+          icon: "ti-math-function",
+          desc: "Mathematics / theory",
+          theme: "latex",
+          content: `# Document Title\n\n**Author One** and **Author Two**\n\n*Department of Mathematics*\n\n---\n\n## Abstract\n\nThis document uses a LaTeX-inspired style suitable for mathematical writing.\n\n## 1. Introduction\n\nLet $G = (V, E)$ be a graph.\n\n**Theorem 1.1.** *Every planar graph is four-colorable.*\n\n## 2. Main Result\n\n**Theorem 2.1** (Main). *Under the assumptions above:*\n\nThe proof follows from the Cauchy–Schwarz inequality. $\\square$\n\n## References\n\n[1] Author, A. (Year). *Title*. Journal.\n`,
+        },
+        {
+          id: "editorial",
+          name: "Editorial",
+          icon: "ti-news",
+          desc: "Magazine / journalism",
+          theme: "editorial",
+          content: `# The Headline That Captures Attention\n\n### Section Label\n\n*By Author Name · Publication · Date*\n\n---\n\nThe opening paragraph draws readers in with a compelling hook.\n\nThe second paragraph provides context and builds narrative momentum.\n\n> The most powerful sentence is often the simplest one.\n\n## The Middle: Developing the Story\n\nHere you develop the main argument or narrative. Each section should pull the reader forward.\n\n## Conclusion\n\nEnd with impact. Circle back to the opening or land on a resonant final thought.\n\n---\n\n*Author Name is a [title] at [publication].*\n`,
+        },
+        {
+          id: "technical",
+          name: "Technical Docs",
+          icon: "ti-code",
+          desc: "API docs / README",
+          theme: "technical",
+          content: `# Project Name\n\nA brief description of what this does.\n\n## Installation\n\n\`\`\`bash\nnpm install your-package\n\`\`\`\n\n## Quick Start\n\n\`\`\`javascript\nimport { create } from 'your-package';\nconst instance = create({ option: 'value' });\ninstance.run();\n\`\`\`\n\n## API Reference\n\n### \`create(options)\`\n\nCreates a new instance.\n\n| Parameter | Type | Default | Description |\n|-----------|------|---------|-------------|\n| \`option\` | \`string\` | \`'default'\` | Description |\n\n> **Note:** Always call \`create()\` before \`run()\`.\n\n## License\n\nMIT © Your Name\n`,
+        },
+        {
+          id: "meeting",
+          name: "Meeting Notes",
+          icon: "ti-notes",
+          desc: "Structured minutes",
+          theme: "default",
+          content: `# Meeting Notes\n\n**Date:** ${new Date().toLocaleDateString()}  \n**Time:** 10:00 – 11:00  \n**Facilitator:** Name  \n\n## Attendees\n\n- Person One\n- Person Two\n\n## Agenda\n\n1. Topic one\n2. Topic two\n\n## Discussion\n\n### Topic 1\n\nSummary of discussion. **Decision:** What was decided.\n\n## Action Items\n\n| Task | Owner | Due Date |\n|------|-------|----------|\n| Complete X | Person | Date |\n\n## Next Meeting\n\n**Date:** ___________\n`,
+        },
+        {
+          id: "minimal",
+          name: "Minimal Note",
+          icon: "ti-note",
+          desc: "Clean blank canvas",
+          theme: "minimal",
+          content: `# Title\n\nWrite here…\n`,
+        },
+      ];
+
+      const app = createApp({
+        setup() {
+          /* ── Core state ── */
+          const darkMode = ref(false);
+          const sidebarOpen = ref(true);
+          const viewMode = ref("split");
+          const focusMode = ref(false);
+          const wordWrap = ref(true);
+          const unsaved = ref(false);
+          const showStylePanel = ref(false);
+
+          /* ── Files ── */
+          const files = ref([]);
+          const activeFileId = ref(null);
+          const currentContent = ref(DEMO);
+          const renamingFile = ref(false);
+          const renameVal = ref("");
+          const renameInputRef = ref(null);
+          const renamingId = ref(null);
+
+          /* ── Editor ── */
+          const editorRef = ref(null);
+          const editorFontSize = ref(13);
+          const editorLineHeight = ref(1.75);
+          const monoFont = ref("'DM Mono',monospace");
+          const editorWidth = ref(500);
+
+          /* ── Undo/Redo stack ── */
+          const undoStack = ref([]);
+          const redoStack = ref([]);
+          let skipHistoryPush = false;
+
+          /* ── Render theme ── */
+          const renderTheme = ref("default");
+          const renderThemes = [
+            { id: "default", name: "Clean Article" },
+            { id: "research", name: "Research Paper" },
+            { id: "scientific", name: "Scientific Report" },
+            { id: "cv", name: "Professional CV" },
+            { id: "latex", name: "LaTeX Style" },
+            { id: "editorial", name: "Editorial" },
+            { id: "technical", name: "Technical Docs" },
+            { id: "minimal", name: "Minimal" },
+          ];
+          const currentThemeName = computed(
+            () =>
+              renderThemes.find((t) => t.id === renderTheme.value)?.name || "",
+          );
+
+          /* ── Style customizer ── */
+          const customFont = ref("");
+          const cFontSize = ref(16);
+          const cLineH = ref(1.7);
+          const cParaGap = ref(0.75);
+          const cWidth = ref(720);
+          const cPadH = ref(48);
+          const cPadV = ref(40);
+          const cColorText = ref("");
+          const cColorHead = ref("");
+          const cColorLink = ref("");
+          const cColorBg = ref("");
+          const cHeadFont = ref("");
+          const cH1 = ref(2);
+          const cH2 = ref(1.5);
+          const fontChoices = [
+            { name: "DM Sans", val: "'DM Sans',sans-serif" },
+            { name: "IBM Plex", val: "'IBM Plex Sans',sans-serif" },
+            { name: "Raleway", val: "'Raleway',sans-serif" },
+            { name: "Crimson", val: "'Crimson Pro',serif" },
+            { name: "Src Serif", val: "'Source Serif 4',serif" },
+            { name: "Playfair", val: "'Playfair Display',serif" },
+            { name: "Space Mono", val: "'Space Mono',monospace" },
+            { name: "JetBrains", val: "'JetBrains Mono',monospace" },
+          ];
+
+          const previewPageStyle = computed(() => {
+            const s = {};
+            if (customFont.value) s.fontFamily = customFont.value;
+            if (cFontSize.value !== 16) s.fontSize = cFontSize.value + "px";
+            if (cLineH.value !== 1.7) s.lineHeight = cLineH.value;
+            if (cColorText.value) s.color = cColorText.value;
+            if (cColorBg.value) s.background = cColorBg.value;
+            s.maxWidth = cWidth.value + "px";
+            s.paddingLeft = cPadH.value + "px";
+            s.paddingRight = cPadH.value + "px";
+            s.paddingTop = cPadV.value + "px";
+            s.paddingBottom = cPadV.value + 40 + "px";
+            return s;
+          });
+
+          /* ── Images ── */
+          const images = ref([]);
+          const selectedImgs = ref([]);
+          const imgFileInput = ref(null);
+          const showImgManager = ref(false);
+          const showResize = ref(false);
+          const showCrop = ref(false);
+          const resizeTgt = ref(null);
+          const resW = ref(0),
+            resH = ref(0),
+            resLock = ref(true),
+            resQ = ref(0.92);
+          const cropTgt = ref(null);
+          const cropX = ref(0),
+            cropY = ref(0),
+            cropW = ref(0),
+            cropH = ref(0);
+          const cropWrapRef = ref(null),
+            cropImgRef = ref(null);
+          const cropScale = ref(1);
+          const cropPresets = [
+            "Free",
+            "1:1",
+            "4:3",
+            "16:9",
+            "3:4",
+            "A4 (portrait)",
+          ];
+
+          /* ── Export ── */
+          const showExport = ref(false);
+          const showPdfSettings = ref(false);
+          const exportTitle = ref("");
+          const exportAuthor = ref("");
+          const exportKeywords = ref("");
+          const exportDate = ref(new Date().toISOString().slice(0, 10));
+          const pdfPaperSize = ref("A4");
+          const pdfOrientation = ref("portrait");
+          const pdfMargins = ref("normal");
+          const pdfScale = ref("100");
+          const pdfHeaders = ref(false);
+          const pdfBg = ref(true);
+          const pdfLinks = ref(true);
+
+          /* ── Templates ── */
+          const documentTemplates = TEMPLATES;
+          const userTemplates = ref([]);
+          const showTemplates = ref(false);
+          const tplTab = ref("builtin");
+          const showSaveTpl = ref(false);
+          const newTplName = ref("");
+          const newTplDesc = ref("");
+          const tplInclude = ref(true);
+
+          /* ── Find/Replace ── */
+          const showFR = ref(false);
+          const frFind = ref("");
+          const frReplace = ref("");
+          const frCase = ref(false);
+          const frRegex = ref(false);
+          const frWhole = ref(false);
+          const frCount = ref(null);
+          const frFindRef = ref(null);
+
+          /* ── Context menu ── */
+          const ctxMenu = ref({
+            show: false,
+            x: 0,
+            y: 0,
+            type: "editor",
+            fileId: null,
+          });
+          let ctxCloseTimer = null;
+
+          /* ── Keyboard shortcuts ── */
+          const showKeyboardShortcuts = ref(false);
+          const shortcuts = [
+            { key: "Ctrl+S", desc: "Save" },
+            { key: "Ctrl+N", desc: "New file" },
+            { key: "Ctrl+B", desc: "Bold" },
+            { key: "Ctrl+I", desc: "Italic" },
+            { key: "Ctrl+H", desc: "Find & Replace" },
+            { key: "Ctrl+Z", desc: "Undo" },
+            { key: "Ctrl+Y", desc: "Redo" },
+            { key: "Ctrl+/", desc: "Toggle comment" },
+            { key: "Ctrl+D", desc: "Duplicate line" },
+            { key: "Tab", desc: "Indent" },
+            { key: "Shift+Tab", desc: "Outdent" },
+            { key: "Ctrl+Enter", desc: "New paragraph" },
+            { key: "Ctrl+Shift+F", desc: "Focus mode" },
+            { key: "F11", desc: "Fullscreen" },
+            { key: "Esc", desc: "Close modal/focus", wide: true },
+          ];
+
+          /* ── Notifications ── */
+          const notifications = ref([]);
+          let notifId = 0;
+          const notify = (msg, type = "info", dur = 3000) => {
+            const id = ++notifId;
+            notifications.value.push({ id, msg, type });
+            setTimeout(() => {
+              notifications.value = notifications.value.filter(
+                (n) => n.id !== id,
+              );
+            }, dur);
+          };
+
+          /* ── Refs ── */
+          const mdFileInput = ref(null);
+
+          /* ── Computed ── */
+          const activeFile = computed(() =>
+            files.value.find((f) => f.id === activeFileId.value),
+          );
+          const wordCount = computed(() => {
+            const t = currentContent.value.trim();
+            return t ? t.split(/\s+/).length : 0;
+          });
+          const charCount = computed(() => currentContent.value.length);
+          const lineCount = computed(
+            () => currentContent.value.split("\n").length,
+          );
+          const readTime = computed(() => Math.ceil(wordCount.value / 200));
+
+          const headings = computed(() => {
+            const re = /^(#{1,6})\s+(.+)$/gm;
+            const out = [];
+            let m;
+            while ((m = re.exec(currentContent.value)) !== null) {
+              const text = m[2].replace(/[*_`]/g, "").trim();
+              const slug = text
+                .toLowerCase()
+                .replace(/\s+/g, "-")
+                .replace(/[^\w-]/g, "");
+              out.push({ level: m[1].length, text, slug });
+            }
+            return out;
+          });
+
+          /* ── Marked renderer ── */
+          const buildRenderer = () => {
+            const r = new marked.Renderer();
+            r.heading = (text, level) => {
+              const slug = text
+                .replace(/<[^>]*>/g, "")
+                .toLowerCase()
+                .replace(/\s+/g, "-")
+                .replace(/[^\w-]/g, "");
+              return `<h${level} id="${slug}">${text}</h${level}>`;
+            };
+            r.image = (href, title, text) => {
+              const stored = images.value.find(
+                (i) => i.id === href || i.name === href,
+              );
+              const src = stored ? stored.data : href;
+              const wMatch = text?.match(/w=(\d+)/);
+              const hMatch = text?.match(/h=(\d+)/);
+              const alt = (text || "").replace(/[wh]=\d+/g, "").trim();
+              let st = "max-width:100%";
+              if (wMatch) st += `;width:${wMatch[1]}px`;
+              if (hMatch) st += `;height:${hMatch[1]}px`;
+              return `<figure style="margin:.7em 0;text-align:center"><img src="${src}" alt="${alt}" style="${st};border-radius:var(--rad)"/>${title ? `<figcaption style="font-size:.8em;color:var(--fg2);margin-top:.25em">${title}</figcaption>` : ""}</figure>`;
+            };
+            r.code = (code, lang) => {
+              let highlighted = code;
+              if (lang && hljs.getLanguage(lang)) {
+                try {
+                  highlighted = hljs.highlight(code, { language: lang }).value;
+                } catch (e) {}
+              } else {
+                try {
+                  highlighted = hljs.highlightAuto(code).value;
+                } catch (e) {}
+              }
+              return `<pre><code class="hljs ${lang || ""}">${highlighted}</code></pre>`;
+            };
+            return r;
+          };
+
+          const renderedHtml = computed(() => {
+            try {
+              marked.setOptions({
+                renderer: buildRenderer(),
+                breaks: true,
+                gfm: true,
+              });
+              let html = marked.parse(currentContent.value || "");
+              // Inject custom overrides as a scoped <style>
+              const ov = [];
+              if (cColorText.value)
+                ov.push(
+                  `#preview-page,#preview-page *:not(pre):not(code){color:${cColorText.value}!important}`,
+                );
+              if (cColorHead.value)
+                ov.push(
+                  `#preview-page h1,#preview-page h2,#preview-page h3,#preview-page h4{color:${cColorHead.value}!important}`,
+                );
+              if (cColorLink.value)
+                ov.push(`#preview-page a{color:${cColorLink.value}!important}`);
+              if (cHeadFont.value)
+                ov.push(
+                  `#preview-page h1,#preview-page h2,#preview-page h3{font-family:${cHeadFont.value}!important}`,
+                );
+              if (cH1.value !== 2)
+                ov.push(`#preview-page h1{font-size:${cH1.value}em!important}`);
+              if (cH2.value !== 1.5)
+                ov.push(`#preview-page h2{font-size:${cH2.value}em!important}`);
+              if (cParaGap.value !== 0.75)
+                ov.push(
+                  `#preview-page p{margin:${cParaGap.value}em 0!important}`,
+                );
+              if (ov.length) html = `<style>${ov.join(" ")}</style>` + html;
+              return html;
+            } catch (e) {
+              return `<p style="color:red">Render error: ${e.message}</p>`;
+            }
+          });
+
+          /* ── Persistence (localStorage) ── */
+          const SK = "mdstudio_v3";
+          const persist = () => {
+            try {
+              localStorage.setItem(
+                SK,
+                JSON.stringify({
+                  files: files.value.map((f) => ({
+                    ...f,
+                    content:
+                      f.id === activeFileId.value
+                        ? currentContent.value
+                        : f.content,
+                  })),
+                  activeFileId: activeFileId.value,
+                  darkMode: darkMode.value,
+                  renderTheme: renderTheme.value,
+                  images: images.value,
+                  userTemplates: userTemplates.value,
+                }),
+              );
+              unsaved.value = false;
+            } catch (e) {
+              notify("Storage full — cannot save", "error");
+            }
+          };
+          const hydrate = () => {
+            try {
+              const raw = localStorage.getItem(SK);
+              if (!raw) return false;
+              const d = JSON.parse(raw);
+              if (d.files?.length) files.value = d.files;
+              if (d.activeFileId) activeFileId.value = d.activeFileId;
+              if (d.darkMode !== undefined) darkMode.value = d.darkMode;
+              if (d.renderTheme) renderTheme.value = d.renderTheme;
+              if (d.images) images.value = d.images;
+              if (d.userTemplates) userTemplates.value = d.userTemplates;
+              const af = files.value.find((f) => f.id === activeFileId.value);
+              if (af) currentContent.value = af.content || "";
+              return true;
+            } catch (e) {
+              return false;
+            }
+          };
+
+          /* ── Files ── */
+          const mkid = () => Math.random().toString(36).slice(2, 9);
+          const newFile = () => {
+            const id = mkid();
+            files.value.push({
+              id,
+              name: `note-${files.value.length + 1}.md`,
+              content: "",
+            });
+            switchFile(id);
+          };
+          const switchFile = (id) => {
+            if (activeFileId.value) {
+              const af = files.value.find((f) => f.id === activeFileId.value);
+              if (af) af.content = currentContent.value;
+            }
+            activeFileId.value = id;
+            const f = files.value.find((f) => f.id === id);
+            currentContent.value = f?.content || "";
+            undoStack.value = [];
+            redoStack.value = [];
+            unsaved.value = false;
+          };
+          const deleteFile = (id) => {
+            if (files.value.length === 1) {
+              notify("At least one file required", "warn");
+              return;
+            }
+            if (!confirm("Delete this file?")) return;
+            files.value = files.value.filter((f) => f.id !== id);
+            if (activeFileId.value === id) switchFile(files.value[0].id);
+            notify("File deleted", "info");
+          };
+          const duplicateFile = (id) => {
+            const f = files.value.find((f) => f.id === id);
+            if (!f) return;
+            const nid = mkid();
+            files.value.push({
+              id: nid,
+              name: f.name.replace(/(\.\w+)?$/, "-copy$1"),
+              content:
+                f.id === activeFileId.value ? currentContent.value : f.content,
+            });
+            switchFile(nid);
+            notify("File duplicated", "success");
+          };
+          const saveFile = () => {
+            if (activeFileId.value) {
+              const af = files.value.find((f) => f.id === activeFileId.value);
+              if (af) af.content = currentContent.value;
+            }
+            persist();
+            notify("Saved", "success", 1500);
+          };
+
+          /* ── Rename ── */
+          const startRename = () => {
+            if (!activeFile.value) return;
+            renamingId.value = activeFileId.value;
+            renameVal.value = activeFile.value.name;
+            renamingFile.value = true;
+            nextTick(() => renameInputRef.value?.select());
+          };
+          const startRenameById = (id) => {
+            const f = files.value.find((f) => f.id === id);
+            if (!f) return;
+            renamingId.value = id;
+            renameVal.value = f.name;
+            // If it's the active file, use the inline input; else just do it via prompt
+            if (id === activeFileId.value) {
+              renamingFile.value = true;
+              nextTick(() => renameInputRef.value?.select());
+            } else {
+              const nm = prompt("Rename file:", f.name);
+              if (nm?.trim()) f.name = nm.trim();
+            }
+          };
+          const finishRename = () => {
+            if (renameVal.value?.trim()) {
+              const f = files.value.find((f) => f.id === renamingId.value);
+              if (f) f.name = renameVal.value.trim();
+            }
+            renamingFile.value = false;
+          };
+
+          /* ── Undo/Redo ── */
+          const pushHistory = (content) => {
+            if (skipHistoryPush) return;
+            undoStack.value.push(content);
+            if (undoStack.value.length > 100) undoStack.value.shift();
+            redoStack.value = [];
+          };
+          const undo = () => {
+            if (!undoStack.value.length) return;
+            redoStack.value.push(currentContent.value);
+            skipHistoryPush = true;
+            currentContent.value = undoStack.value.pop();
+            skipHistoryPush = false;
+          };
+          const redo = () => {
+            if (!redoStack.value.length) return;
+            undoStack.value.push(currentContent.value);
+            skipHistoryPush = true;
+            currentContent.value = redoStack.value.pop();
+            skipHistoryPush = false;
+          };
+
+          /* ── Editor input ── */
+          let inputTimer = null;
+          const onInput = () => {
+            unsaved.value = true;
+            clearTimeout(inputTimer);
+            inputTimer = setTimeout(
+              () => pushHistory(currentContent.value),
+              800,
+            );
+          };
+
+          /* ── Editor keydown ── */
+          const onEditorKeydown = (e) => {
+            const ctrl = e.ctrlKey || e.metaKey;
+            if (ctrl && e.key === "s") {
+              e.preventDefault();
+              saveFile();
+              return;
+            }
+            if (ctrl && e.key === "b") {
+              e.preventDefault();
+              fmt("**", "**");
+              return;
+            }
+            if (ctrl && e.key === "i") {
+              e.preventDefault();
+              fmt("*", "*");
+              return;
+            }
+            if (ctrl && e.key === "h") {
+              e.preventDefault();
+              openFindReplace();
+              return;
+            }
+            if (ctrl && e.key === "z") {
+              e.preventDefault();
+              undo();
+              return;
+            }
+            if (ctrl && (e.key === "y" || e.key === "Y")) {
+              e.preventDefault();
+              redo();
+              return;
+            }
+            if (ctrl && e.key === "n") {
+              e.preventDefault();
+              newFile();
+              return;
+            }
+            if (ctrl && e.shiftKey && e.key === "F") {
+              e.preventDefault();
+              focusMode.value = true;
+              return;
+            }
+            if (ctrl && e.key === "d") {
+              e.preventDefault();
+              // Duplicate line
+              const ta = editorRef.value;
+              const pos = ta.selectionStart;
+              const start = currentContent.value.lastIndexOf("\n", pos - 1) + 1;
+              const end = currentContent.value.indexOf("\n", pos);
+              const lineEnd = end === -1 ? currentContent.value.length : end;
+              const line = currentContent.value.substring(start, lineEnd);
+              currentContent.value =
+                currentContent.value.substring(0, lineEnd) +
+                "\n" +
+                line +
+                currentContent.value.substring(lineEnd);
+              nextTick(() => {
+                ta.selectionStart = ta.selectionEnd = lineEnd + 1 + line.length;
+              });
+              return;
+            }
+            if (e.key === "Tab") {
+              e.preventDefault();
+              const ta = editorRef.value;
+              const s = ta.selectionStart,
+                en = ta.selectionEnd;
+              if (e.shiftKey) {
+                // Outdent
+                const lineStart =
+                  currentContent.value.lastIndexOf("\n", s - 1) + 1;
+                const line = currentContent.value.substring(lineStart, en);
+                const newLine = line.replace(/^ {1,2}/, "");
+                currentContent.value =
+                  currentContent.value.substring(0, lineStart) +
+                  newLine +
+                  currentContent.value.substring(en);
+                nextTick(() => {
+                  ta.selectionStart = ta.selectionEnd =
+                    s - Math.min(2, line.length - newLine.length);
+                });
+              } else {
+                currentContent.value =
+                  currentContent.value.substring(0, s) +
+                  "  " +
+                  currentContent.value.substring(en);
+                nextTick(() => {
+                  ta.selectionStart = ta.selectionEnd = s + 2;
+                });
+              }
+              return;
+            }
+            if (e.key === "Escape" && focusMode.value) {
+              focusMode.value = false;
+              return;
+            }
+            if (e.key === "F11") {
+              e.preventDefault();
+              focusMode.value = !focusMode.value;
+              return;
+            }
+            // Auto-pair brackets/quotes
+            const pairs = {
+              "(": ")",
+              "{": "}",
+              "[": "]",
+              '"': '"',
+              "'": "'",
+              "`": "`",
+            };
+            if (pairs[e.key]) {
+              const ta = editorRef.value;
+              const s = ta.selectionStart,
+                en = ta.selectionEnd;
+              if (s !== en) {
+                e.preventDefault();
+                const sel = currentContent.value.substring(s, en);
+                currentContent.value =
+                  currentContent.value.substring(0, s) +
+                  e.key +
+                  sel +
+                  pairs[e.key] +
+                  currentContent.value.substring(en);
+                nextTick(() => {
+                  ta.selectionStart = s + 1;
+                  ta.selectionEnd = en + 1;
+                });
+              }
+            }
+          };
+
+          /* ── Formatting helpers ── */
+          const fmt = (before, after) => {
+            const ta = editorRef.value;
+            if (!ta) return;
+            const s = ta.selectionStart,
+              e = ta.selectionEnd;
+            const sel = currentContent.value.substring(s, e);
+            // Toggle: if already wrapped, unwrap
+            if (
+              currentContent.value.substring(s - before.length, s) === before &&
+              currentContent.value.substring(e, e + after.length) === after
+            ) {
+              currentContent.value =
+                currentContent.value.substring(0, s - before.length) +
+                sel +
+                currentContent.value.substring(e + after.length);
+              nextTick(() => {
+                ta.selectionStart = s - before.length;
+                ta.selectionEnd = e - before.length;
+                ta.focus();
+              });
+            } else {
+              currentContent.value =
+                currentContent.value.substring(0, s) +
+                before +
+                sel +
+                after +
+                currentContent.value.substring(e);
+              nextTick(() => {
+                ta.selectionStart = s + before.length;
+                ta.selectionEnd = s + before.length + sel.length;
+                ta.focus();
+              });
+            }
+            unsaved.value = true;
+          };
+          const fmtLine = (prefix) => {
+            const ta = editorRef.value;
+            if (!ta) return;
+            const pos = ta.selectionStart;
+            const start = currentContent.value.lastIndexOf("\n", pos - 1) + 1;
+            const end = currentContent.value.indexOf("\n", pos);
+            const lineEnd = end === -1 ? currentContent.value.length : end;
+            const line = currentContent.value.substring(start, lineEnd);
+            if (line.startsWith(prefix)) {
+              currentContent.value =
+                currentContent.value.substring(0, start) +
+                line.slice(prefix.length) +
+                currentContent.value.substring(lineEnd);
+              nextTick(() => {
+                ta.selectionStart = ta.selectionEnd = Math.max(
+                  start,
+                  pos - prefix.length,
+                );
+                ta.focus();
+              });
+            } else {
+              currentContent.value =
+                currentContent.value.substring(0, start) +
+                prefix +
+                line +
+                currentContent.value.substring(lineEnd);
+              nextTick(() => {
+                ta.selectionStart = ta.selectionEnd = pos + prefix.length;
+                ta.focus();
+              });
+            }
+            unsaved.value = true;
+          };
+          const fmtBlock = (before, after) => {
+            const ta = editorRef.value;
+            if (!ta) return;
+            const s = ta.selectionStart;
+            const sel =
+              currentContent.value.substring(s, ta.selectionEnd) || "code here";
+            currentContent.value =
+              currentContent.value.substring(0, s) +
+              before +
+              sel +
+              after +
+              currentContent.value.substring(ta.selectionEnd);
+            unsaved.value = true;
+          };
+          const insertLink = () => {
+            const ta = editorRef.value;
+            if (!ta) return;
+            const sel = currentContent.value.substring(
+              ta.selectionStart,
+              ta.selectionEnd,
+            );
+            const url = prompt("URL:", "https://");
+            if (!url) return;
+            const text = sel || prompt("Link text:", "Link") || url;
+            const ins = `[${text}](${url})`;
+            const s = ta.selectionStart;
+            currentContent.value =
+              currentContent.value.substring(0, s) +
+              ins +
+              currentContent.value.substring(ta.selectionEnd);
+            unsaved.value = true;
+          };
+          const insertTable = () => {
+            const ta = editorRef.value;
+            if (!ta) return;
+            const s = ta.selectionStart;
+            const tbl =
+              "\n| Column 1 | Column 2 | Column 3 |\n|----------|----------|----------|\n| Cell 1   | Cell 2   | Cell 3   |\n";
+            currentContent.value =
+              currentContent.value.substring(0, s) +
+              tbl +
+              currentContent.value.substring(s);
+            unsaved.value = true;
+            notify("Table inserted", "info", 1500);
+          };
+          const insertImageFromLib = () => {
+            if (images.value.length) showImgManager.value = true;
+            else triggerImgUpload();
+          };
+          const doSelectAll = () => {
+            editorRef.value?.select();
+          };
+          const doCopy = () => {
+            const ta = editorRef.value;
+            if (!ta) return;
+            const sel = currentContent.value.substring(
+              ta.selectionStart,
+              ta.selectionEnd,
+            );
+            navigator.clipboard?.writeText(sel || currentContent.value);
+            notify("Copied", "success", 1200);
+          };
+          const doPaste = async () => {
+            try {
+              const t = await navigator.clipboard.readText();
+              fmt(t, "");
+            } catch (e) {}
+          };
+          const clearEditor = () => {
+            if (confirm("Clear all content?")) {
+              pushHistory(currentContent.value);
+              currentContent.value = "";
+              unsaved.value = true;
+            }
+          };
+
+          /* ── Dark mode ── */
+          const toggleDark = () => {
+            darkMode.value = !darkMode.value;
+            document.documentElement.setAttribute(
+              "data-theme",
+              darkMode.value ? "dark" : "",
+            );
+            document.getElementById("hljs-theme").href = darkMode.value
+              ? "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css"
+              : "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css";
+          };
+
+          /* ── Resizer ── */
+          let rsing = false,
+            rsX = 0,
+            rsW0 = 0;
+          const startResize = (e) => {
+            rsing = true;
+            rsX = e.clientX;
+            rsW0 = editorWidth.value;
+            document.body.style.userSelect = "none";
+            document.body.style.cursor = "col-resize";
+            document.getElementById("resizer").classList.add("dragging");
+            const onMove = (ev) => {
+              if (!rsing) return;
+              editorWidth.value = Math.max(
+                200,
+                Math.min(rsW0 + (ev.clientX - rsX), window.innerWidth - 300),
+              );
+            };
+            const onUp = () => {
+              rsing = false;
+              document.body.style.userSelect = "";
+              document.body.style.cursor = "";
+              document.getElementById("resizer").classList.remove("dragging");
+              document.removeEventListener("mousemove", onMove);
+              document.removeEventListener("mouseup", onUp);
+            };
+            document.addEventListener("mousemove", onMove);
+            document.addEventListener("mouseup", onUp);
+          };
+
+          /* ── File upload ── */
+          const triggerMdUpload = () => mdFileInput.value?.click();
+          const onMdFileUpload = (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+              const id = mkid();
+              files.value.push({
+                id,
+                name: file.name,
+                content: ev.target.result,
+              });
+              switchFile(id);
+              notify(`Opened: ${file.name}`, "success");
+            };
+            reader.readAsText(file);
+            e.target.value = "";
+          };
+
+          /* ── Images ── */
+          const triggerImgUpload = () => imgFileInput.value?.click();
+          const openImgManager = () => {
+            showImgManager.value = true;
+          };
+          const toggleImgSel = (id) => {
+            const i = selectedImgs.value.indexOf(id);
+            i === -1
+              ? selectedImgs.value.push(id)
+              : selectedImgs.value.splice(i, 1);
+          };
+          const onImgUpload = (e) => {
+            const fls = Array.from(e.target.files);
+            let loaded = 0;
+            fls.forEach((file) => {
+              const rdr = new FileReader();
+              rdr.onload = (ev) => {
+                const img = new Image();
+                img.onload = () => {
+                  images.value.push({
+                    id: mkid(),
+                    name: file.name,
+                    data: ev.target.result,
+                    width: img.naturalWidth,
+                    height: img.naturalHeight,
+                  });
+                  loaded++;
+                  if (loaded === fls.length) {
+                    persist();
+                    notify(`${fls.length} image(s) uploaded`, "success");
+                  }
+                };
+                img.src = ev.target.result;
+              };
+              rdr.readAsDataURL(file);
+            });
+            e.target.value = "";
+          };
+          const deleteSelected = () => {
+            images.value = images.value.filter(
+              (i) => !selectedImgs.value.includes(i.id),
+            );
+            selectedImgs.value = [];
+            persist();
+            notify("Images deleted", "info");
+          };
+          const insertSelected = () => {
+            selectedImgs.value.forEach((id) => {
+              const img = images.value.find((i) => i.id === id);
+              if (img) insertOneImage(img);
+            });
+            selectedImgs.value = [];
+            showImgManager.value = false;
+          };
+          const insertOneImage = (img) => {
+            const ta = editorRef.value;
+            const pos = ta ? ta.selectionStart : currentContent.value.length;
+            const ins = `\n![${img.name}](${img.id})\n`;
+            currentContent.value =
+              currentContent.value.substring(0, pos) +
+              ins +
+              currentContent.value.substring(pos);
+            unsaved.value = true;
+            notify("Image inserted", "success", 1500);
+          };
+
+          /* ── Resize ── */
+          const openResize = (img) => {
+            resizeTgt.value = { ...img };
+            resW.value = img.width;
+            resH.value = img.height;
+            showResize.value = true;
+          };
+          const onRW = () => {
+            if (resLock.value && resizeTgt.value)
+              resH.value = Math.round(
+                resW.value * (resizeTgt.value.height / resizeTgt.value.width),
+              );
+          };
+          const onRH = () => {
+            if (resLock.value && resizeTgt.value)
+              resW.value = Math.round(
+                resH.value * (resizeTgt.value.width / resizeTgt.value.height),
+              );
+          };
+          const applyResize = () => {
+            const c = document.createElement("canvas");
+            c.width = resW.value;
+            c.height = resH.value;
+            const ctx = c.getContext("2d");
+            const img = new Image();
+            img.src = resizeTgt.value.data;
+            img.onload = () => {
+              ctx.drawImage(img, 0, 0, resW.value, resH.value);
+              const nd = c.toDataURL("image/jpeg", resQ.value);
+              const idx = images.value.findIndex(
+                (i) => i.id === resizeTgt.value.id,
+              );
+              if (idx !== -1) {
+                images.value[idx] = {
+                  ...images.value[idx],
+                  data: nd,
+                  width: resW.value,
+                  height: resH.value,
+                };
+                persist();
+              }
+              showResize.value = false;
+              notify("Image resized", "success");
+            };
+          };
+
+          /* ── Crop ── */
+          const openCrop = (img) => {
+            cropTgt.value = { ...img };
+            cropX.value = 0;
+            cropY.value = 0;
+            cropW.value = img.width;
+            cropH.value = img.height;
+            showCrop.value = true;
+          };
+          const initCropDisplay = () => {
+            if (!cropImgRef.value || !cropTgt.value) return;
+            cropScale.value =
+              cropImgRef.value.offsetWidth / cropTgt.value.width;
+          };
+          const cropDisplayRect = computed(() => {
+            if (!cropImgRef.value || !cropTgt.value || !cropWrapRef.value)
+              return null;
+            const s = cropScale.value;
+            const ir = cropImgRef.value.getBoundingClientRect();
+            const cr = cropWrapRef.value.getBoundingClientRect();
+            const ox = ir.left - cr.left,
+              oy = ir.top - cr.top;
+            return {
+              left: ox + cropX.value * s + "px",
+              top: oy + cropY.value * s + "px",
+              width: Math.max(2, cropW.value * s) + "px",
+              height: Math.max(2, cropH.value * s) + "px",
+            };
+          });
+          const applyCropPreset = (p) => {
+            if (!cropTgt.value) return;
+            const { width: ow, height: oh } = cropTgt.value;
+            const ratios = {
+              "1:1": 1,
+              "4:3": 4 / 3,
+              "16:9": 16 / 9,
+              "3:4": 3 / 4,
+              "A4 (portrait)": 1 / Math.sqrt(2),
+            };
+            const ratio = ratios[p];
+            if (!ratio) {
+              cropX.value = 0;
+              cropY.value = 0;
+              cropW.value = ow;
+              cropH.value = oh;
+              return;
+            }
+            let w = ow,
+              h = Math.round(ow / ratio);
+            if (h > oh) {
+              h = oh;
+              w = Math.round(oh * ratio);
+            }
+            cropX.value = Math.round((ow - w) / 2);
+            cropY.value = Math.round((oh - h) / 2);
+            cropW.value = w;
+            cropH.value = h;
+          };
+          const onCropMouseDown = (e) => {
+            if (!cropImgRef.value || !cropWrapRef.value) return;
+            e.preventDefault();
+            const ir = cropImgRef.value.getBoundingClientRect();
+            const s = cropScale.value;
+            const sx = (e.clientX - ir.left) / s,
+              sy = (e.clientY - ir.top) / s;
+            const onMove = (ev) => {
+              const cx = (ev.clientX - ir.left) / s,
+                cy = (ev.clientY - ir.top) / s;
+              cropX.value = Math.max(0, Math.min(sx, cx));
+              cropY.value = Math.max(0, Math.min(sy, cy));
+              cropW.value = Math.abs(cx - sx);
+              cropH.value = Math.abs(cy - sy);
+            };
+            const onUp = () => {
+              document.removeEventListener("mousemove", onMove);
+              document.removeEventListener("mouseup", onUp);
+            };
+            document.addEventListener("mousemove", onMove);
+            document.addEventListener("mouseup", onUp);
+          };
+          const applyCrop = () => {
+            const c = document.createElement("canvas");
+            c.width = Math.max(1, Math.round(cropW.value));
+            c.height = Math.max(1, Math.round(cropH.value));
+            const ctx = c.getContext("2d");
+            const img = new Image();
+            img.src = cropTgt.value.data;
+            img.onload = () => {
+              ctx.drawImage(
+                img,
+                cropX.value,
+                cropY.value,
+                cropW.value,
+                cropH.value,
+                0,
+                0,
+                c.width,
+                c.height,
+              );
+              const nd = c.toDataURL("image/png");
+              const idx = images.value.findIndex(
+                (i) => i.id === cropTgt.value.id,
+              );
+              if (idx !== -1) {
+                images.value[idx] = {
+                  ...images.value[idx],
+                  data: nd,
+                  width: c.width,
+                  height: c.height,
+                };
+                persist();
+              }
+              showCrop.value = false;
+              notify("Image cropped", "success");
+            };
+          };
+
+          /* ── Templates ── */
+          const openTemplates = () => {
+            showTemplates.value = true;
+          };
+          const loadTemplate = (t) => {
+            renderTheme.value = t.theme || "default";
+            currentContent.value = t.content.replace(
+              /\{\{date\}\}/g,
+              new Date().toLocaleDateString(),
+            );
+            unsaved.value = true;
+            notify(`Template: ${t.name}`, "success");
+          };
+          const loadUserTemplate = (t) => {
+            renderTheme.value = t.theme || "default";
+            if (t.content) currentContent.value = t.content;
+            unsaved.value = true;
+            notify(`Template: ${t.name}`, "success");
+          };
+          const saveAsTheme = () => {
+            showSaveTpl.value = true;
+            newTplName.value = "";
+            newTplDesc.value = "";
+          };
+          const saveAsUserTemplate = () => {
+            if (!newTplName.value.trim()) {
+              notify("Enter a name", "warn");
+              return;
+            }
+            userTemplates.value.push({
+              id: mkid(),
+              name: newTplName.value.trim(),
+              desc: newTplDesc.value.trim(),
+              theme: renderTheme.value,
+              content: tplInclude.value ? currentContent.value : "",
+            });
+            persist();
+            showSaveTpl.value = false;
+            notify("Template saved", "success");
+          };
+          const deleteUserTpl = (id) => {
+            userTemplates.value = userTemplates.value.filter(
+              (t) => t.id !== id,
+            );
+            persist();
+          };
+
+          /* ── Find/Replace ── */
+          const openFindReplace = () => {
+            showFR.value = true;
+            frCount.value = null;
+            nextTick(() => frFindRef.value?.focus());
+          };
+          const frBuildRe = () => {
+            let pat = frFind.value;
+            if (!frRegex.value)
+              pat = pat.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            if (frWhole.value) pat = `\\b${pat}\\b`;
+            return new RegExp(pat, frCase.value ? "g" : "gi");
+          };
+          const frDoFind = () => {
+            if (!frFind.value) return;
+            try {
+              const ms = currentContent.value.match(frBuildRe());
+              frCount.value = ms ? ms.length : 0;
+            } catch (e) {
+              notify("Invalid regex", "error");
+            }
+          };
+          const frReplaceOne = () => {
+            if (!frFind.value) return;
+            try {
+              const re = frBuildRe();
+              re.lastIndex = 0;
+              // Single replace (remove global flag)
+              const src = frFind.value;
+              let p = src;
+              if (!frRegex.value) p = p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+              if (frWhole.value) p = `\\b${p}\\b`;
+              currentContent.value = currentContent.value.replace(
+                new RegExp(p, frCase.value ? "" : "i"),
+                frReplace.value,
+              );
+              unsaved.value = true;
+              frDoFind();
+            } catch (e) {
+              notify("Invalid regex", "error");
+            }
+          };
+          const frReplaceAll = () => {
+            if (!frFind.value) return;
+            try {
+              const re = frBuildRe();
+              const before = currentContent.value;
+              const count = (before.match(re) || []).length;
+              currentContent.value = before.replace(re, frReplace.value);
+              unsaved.value = true;
+              frCount.value = 0;
+              notify(`Replaced ${count} occurrence(s)`, "success");
+            } catch (e) {
+              notify("Invalid regex", "error");
+            }
+          };
+
+          /* ── Style reset ── */
+          const resetStyle = () => {
+            customFont.value = "";
+            cFontSize.value = 16;
+            cLineH.value = 1.7;
+            cParaGap.value = 0.75;
+            cWidth.value = 720;
+            cPadH.value = 48;
+            cPadV.value = 40;
+            cColorText.value = "";
+            cColorHead.value = "";
+            cColorLink.value = "";
+            cColorBg.value = "";
+            cHeadFont.value = "";
+            cH1.value = 2;
+            cH2.value = 1.5;
+            notify("Style reset", "info", 1500);
+          };
+
+          /* ── Copy helpers ── */
+          const copyHtml = () => {
+            navigator.clipboard?.writeText(renderedHtml.value);
+            notify("HTML copied", "success", 1500);
+          };
+          const copyText = () => {
+            const d = document.createElement("div");
+            d.innerHTML = renderedHtml.value;
+            navigator.clipboard?.writeText(d.textContent || "");
+            notify("Text copied", "success", 1500);
+          };
+
+          /* ── Export helpers ── */
+          const openExport = () => {
+            showExport.value = true;
+            showPdfSettings.value = false;
+            exportTitle.value =
+              activeFile.value?.name?.replace(/\.\w+$/, "") || "Document";
+          };
+          const dlBlob = (blob, name) => {
+            const u = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = u;
+            a.download = name;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(u), 1000);
+          };
+          const fname = (ext) =>
+            (activeFile.value?.name?.replace(/\.\w+$/, "") || "document") +
+            "." +
+            ext;
+
+          const exportMarkdown = () => {
+            dlBlob(
+              new Blob([currentContent.value], { type: "text/markdown" }),
+              fname("md"),
+            );
+            notify("Markdown exported", "success");
+          };
+          const exportTxt = () => {
+            const d = document.createElement("div");
+            d.innerHTML = renderedHtml.value;
+            dlBlob(
+              new Blob([d.textContent || ""], { type: "text/plain" }),
+              fname("txt"),
+            );
+            notify("Text exported", "success");
+          };
+          const exportJSON = () => {
+            const data = {
+              title: exportTitle.value,
+              author: exportAuthor.value,
+              keywords: exportKeywords.value,
+              date: exportDate.value,
+              theme: renderTheme.value,
+              content: currentContent.value,
+              wordCount: wordCount.value,
+              charCount: charCount.value,
+              exported: new Date().toISOString(),
+            };
+            dlBlob(
+              new Blob([JSON.stringify(data, null, 2)], {
+                type: "application/json",
+              }),
+              fname("json"),
+            );
+            notify("JSON exported", "success");
+          };
+          const exportHTML = () => {
+            // Build a self-contained, styled HTML file
+            const styleEl = document.createElement("style");
+            let styles = "";
+            for (const sheet of document.styleSheets) {
+              try {
+                for (const rule of sheet.cssRules || [])
+                  styles += rule.cssText + "\n";
+              } catch (e) {}
+            }
+            const isDark = darkMode.value;
+            const htmlDoc = `<!DOCTYPE html>
+<html lang="en" data-theme="${isDark ? "dark" : ""}">
+<head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>${exportTitle.value || "Document"}</title>
+<meta name="author" content="${exportAuthor.value}"/>
+<meta name="keywords" content="${exportKeywords.value}"/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,400;0,600;1,400&family=DM+Sans:wght@300;400;500;600&family=Playfair+Display:ital,wght@0,700;1,400&family=Source+Serif+4:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Sans:wght@300;400;500;600&family=Raleway:wght@300;400;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/${isDark ? "github-dark" : "github"}.min.css"/>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg0:#fff;--bg1:#f7f6f3;--bg2:#efede8;--fg0:#1a1916;--fg1:#3d3b36;--fg2:#6b6860;--fg3:#9c9a94;--acc:#2563eb;--border:#d6d3cc;--border2:#c4c1ba;--rad:8px;--font-mono:'DM Mono',monospace}
+[data-theme="dark"]{--bg0:#161512;--bg1:#1e1d1a;--bg2:#252420;--fg0:#f0ede6;--fg1:#d4d0c8;--fg2:#9c9890;--fg3:#6b6860;--acc:#60a5fa;--border:#35342f;--border2:#46443d}
+body{background:var(--bg1);font-family:'DM Sans',sans-serif}
+${styles}
+</style>
+</head>
+<body>
+<div id="preview-page" class="md-body theme-${renderTheme.value}" style="${Object.entries(
+              previewPageStyle.value,
+            )
+              .map(
+                ([k, v]) =>
+                  k.replace(/([A-Z])/g, "-$1").toLowerCase() + ":" + v,
+              )
+              .join(";")}">
+${renderedHtml.value}
+</div>
+</body>
+</html>`;
+            dlBlob(new Blob([htmlDoc], { type: "text/html" }), fname("html"));
+            notify("HTML exported", "success");
+          };
+          const exportDocx = () => {
+            const wordHtml = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word'>
+<head><meta charset="UTF-8"/><title>${exportTitle.value}</title>
+<style>
+@page{margin:2cm 2.5cm}
+body{font-family:Calibri,sans-serif;font-size:12pt;line-height:1.6}
+h1{font-size:22pt;margin:0 0 6pt}h2{font-size:16pt;margin:18pt 0 6pt}h3{font-size:13pt;margin:14pt 0 4pt}
+table{border-collapse:collapse;width:100%;margin:10pt 0}
+td,th{border:1px solid #ccc;padding:5pt 7pt;font-size:10pt}
+th{background:#e8e8e8;font-weight:bold}
+code,pre{font-family:'Courier New',monospace;background:#f0f0f0;font-size:10pt}
+blockquote{margin:0 0 0 18pt;padding:6pt 12pt;border-left:3px solid #ccc;color:#555}
+hr{border-top:1px solid #ccc;margin:16pt 0}
+</style>
+</head>
+<body>${renderedHtml.value}</body>
+</html>`;
+            dlBlob(
+              new Blob(["\ufeff" + wordHtml], { type: "application/msword" }),
+              fname("doc"),
+            );
+            notify("Word document exported", "success");
+          };
+
+          /* ── PDF Export: proper multi-page via print ── */
+          const exportPDF = () => {
+            showExport.value = false;
+            // Inject a temporary print style sheet with user's PDF settings
+            const marginMap = {
+              normal: "2cm",
+              narrow: "1cm",
+              wide: "3cm",
+              none: "0",
+            };
+            const margin = marginMap[pdfMargins.value] || "2cm";
+            const printStyle = document.createElement("style");
+            printStyle.id = "pdf-print-override";
+            printStyle.textContent = `
+      @page{
+        size:${pdfPaperSize.value} ${pdfOrientation.value};
+        margin:${margin};
+      }
+      @media print{
+        html,body{height:auto!important;overflow:visible!important}
+        #vue-root,#app-body,#main,#preview-pane,#preview-scroller{overflow:visible!important;height:auto!important;display:block!important}
+        #topbar,#statusbar,#sidebar,#editor-pane,#resizer,.pane-toolbar,#ctx-menu,#notif-area,#style-panel-wrap{display:none!important}
+        #preview-page{
+          max-width:100%!important;
+          padding:0!important;
+          margin:0!important;
+          background:white!important;
+          zoom:${pdfScale.value}%;
+        }
+        .md-body pre{white-space:pre-wrap;page-break-inside:avoid}
+        .md-body h1,.md-body h2,.md-body h3{page-break-after:avoid}
+        .md-body table{page-break-inside:avoid}
+        .md-body img{page-break-inside:avoid}
+        ${!pdfBg.value ? "*{background:transparent!important;box-shadow:none!important;}" : ""}
+        ${pdfHeaders.value ? `@page{@top-center{content:'${exportTitle.value || ""}'}@bottom-right{content:counter(page)}}` : ""} 
+      }
+    `;
+            document.head.appendChild(printStyle);
+            notify("Opening print dialog…", "info");
+            setTimeout(() => {
+              window.print();
+              setTimeout(() => {
+                const el = document.getElementById("pdf-print-override");
+                if (el) el.remove();
+              }, 2000);
+            }, 400);
+          };
+
+          const exportSingle = (id, ext) => {
+            const f = files.value.find((f) => f.id === id);
+            if (!f) return;
+            const content =
+              id === activeFileId.value ? currentContent.value : f.content;
+            dlBlob(new Blob([content], { type: "text/markdown" }), f.name);
+            notify("Downloaded", "success", 1500);
+          };
+
+          /* ── Context menu ── */
+          const openEditorCtx = (e) => {
+            e.preventDefault();
+            positionCtx(e, { type: "editor" });
+          };
+          const openPreviewCtx = (e) => {
+            e.preventDefault();
+            positionCtx(e, { type: "preview" });
+          };
+          const openFileCtx = (e, f) => {
+            e.preventDefault();
+            positionCtx(e, { type: "file", fileId: f.id });
+          };
+          const positionCtx = (e, extra) => {
+            closeCtx();
+            const x = Math.min(e.clientX, window.innerWidth - 210);
+            const y = Math.min(e.clientY, window.innerHeight - 320);
+            ctxMenu.value = { show: true, x, y, ...extra };
+            const close = (ev) => {
+              if (!ev.target.closest("#ctx-menu")) {
+                closeCtx();
+                document.removeEventListener("click", close);
+              }
+            };
+            nextTick(() => document.addEventListener("click", close));
+          };
+          const closeCtx = () => {
+            ctxMenu.value.show = false;
+          };
+          const scheduleCloseCtx = () => {
+            ctxCloseTimer = setTimeout(closeCtx, 300);
+          };
+
+          /* ── Scroll to heading ── */
+          const scrollToHeading = (slug) => {
+            nextTick(() => {
+              const el = document
+                .getElementById("preview-scroller")
+                ?.querySelector(`#${slug}`);
+              el?.scrollIntoView({ behavior: "smooth", block: "start" });
+            });
+          };
+
+          /* ── Global keydown ── */
+          const onGlobalKeydown = (e) => {
+            if (e.key === "Escape") {
+              if (focusMode.value) {
+                focusMode.value = false;
+                return;
+              }
+              closeCtx();
+            }
+            if (e.key === "F11") {
+              e.preventDefault();
+              focusMode.value = !focusMode.value;
+            }
+          };
+
+          /* ── Watch auto-save ── */
+          let autoSaveTimer = null;
+          watch(currentContent, () => {
+            unsaved.value = true;
+            clearTimeout(autoSaveTimer);
+            autoSaveTimer = setTimeout(() => {
+              if (activeFileId.value) {
+                const af = files.value.find((f) => f.id === activeFileId.value);
+                if (af) af.content = currentContent.value;
+              }
+              persist();
+            }, 5000);
+          });
+
+          /* ── Mount ── */
+          onMounted(() => {
+            const ok = hydrate();
+            if (!ok) {
+              const id = mkid();
+              files.value = [{ id, name: "welcome.md", content: DEMO }];
+              activeFileId.value = id;
+              currentContent.value = DEMO;
+            }
+            if (darkMode.value) {
+              document.documentElement.setAttribute("data-theme", "dark");
+              document.getElementById("hljs-theme").href =
+                "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css";
+            }
+            document.addEventListener("keydown", onGlobalKeydown);
+          });
+
+          return {
+            darkMode,
+            sidebarOpen,
+            viewMode,
+            focusMode,
+            wordWrap,
+            unsaved,
+            showStylePanel,
+            files,
+            activeFileId,
+            currentContent,
+            activeFile,
+            renamingFile,
+            renameVal,
+            renameInputRef,
+            editorRef,
+            editorFontSize,
+            editorLineHeight,
+            monoFont,
+            editorWidth,
+            renderTheme,
+            renderThemes,
+            currentThemeName,
+            customFont,
+            cFontSize,
+            cLineH,
+            cParaGap,
+            cWidth,
+            cPadH,
+            cPadV,
+            cColorText,
+            cColorHead,
+            cColorLink,
+            cColorBg,
+            cHeadFont,
+            cH1,
+            cH2,
+            fontChoices,
+            previewPageStyle,
+            images,
+            selectedImgs,
+            imgFileInput,
+            showImgManager,
+            showResize,
+            showCrop,
+            resizeTgt,
+            resW,
+            resH,
+            resLock,
+            resQ,
+            cropTgt,
+            cropX,
+            cropY,
+            cropW,
+            cropH,
+            cropWrapRef,
+            cropImgRef,
+            cropDisplayRect,
+            cropPresets,
+            showExport,
+            showPdfSettings,
+            exportTitle,
+            exportAuthor,
+            exportKeywords,
+            exportDate,
+            pdfPaperSize,
+            pdfOrientation,
+            pdfMargins,
+            pdfScale,
+            pdfHeaders,
+            pdfBg,
+            pdfLinks,
+            documentTemplates,
+            userTemplates,
+            showTemplates,
+            tplTab,
+            showSaveTpl,
+            newTplName,
+            newTplDesc,
+            tplInclude,
+            showFR,
+            frFind,
+            frReplace,
+            frCase,
+            frRegex,
+            frWhole,
+            frCount,
+            frFindRef,
+            ctxMenu,
+            showKeyboardShortcuts,
+            shortcuts,
+            wordCount,
+            charCount,
+            lineCount,
+            readTime,
+            headings,
+            renderedHtml,
+            notifications,
+            mdFileInput,
+            // Methods
+            newFile,
+            switchFile,
+            deleteFile,
+            duplicateFile,
+            saveFile,
+            startRename,
+            startRenameById,
+            finishRename,
+            undo,
+            redo,
+            onInput,
+            onEditorKeydown,
+            fmt,
+            fmtLine,
+            fmtBlock,
+            insertLink,
+            insertTable,
+            insertImageFromLib,
+            doSelectAll,
+            doCopy,
+            doPaste,
+            clearEditor,
+            toggleDark,
+            startResize,
+            triggerMdUpload,
+            onMdFileUpload,
+            openImgManager,
+            triggerImgUpload,
+            toggleImgSel,
+            onImgUpload,
+            deleteSelected,
+            insertSelected,
+            insertOneImage,
+            openResize,
+            onRW,
+            onRH,
+            applyResize,
+            openCrop,
+            initCropDisplay,
+            onCropMouseDown,
+            applyCropPreset,
+            applyCrop,
+            openTemplates,
+            loadTemplate,
+            loadUserTemplate,
+            saveAsTheme,
+            saveAsUserTemplate,
+            deleteUserTpl,
+            openFindReplace,
+            frDoFind,
+            frReplaceOne,
+            frReplaceAll,
+            resetStyle,
+            copyHtml,
+            copyText,
+            openExport,
+            exportMarkdown,
+            exportTxt,
+            exportJSON,
+            exportHTML,
+            exportDocx,
+            exportPDF,
+            exportSingle,
+            openEditorCtx,
+            openPreviewCtx,
+            openFileCtx,
+            closeCtx,
+            scheduleCloseCtx,
+            scrollToHeading,
+          };
+        },
+      });
+      app.mount("#vue-root");
+    </script>
+  </body>
+</html>

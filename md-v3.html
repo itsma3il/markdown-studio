@@ -1,0 +1,1693 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+    <link rel="apple-touch-icon" sizes="180x180" href="./assets/images/android-chrome-192x192.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="./assets/images/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="./assets/images/favicon-16x16.png" />
+    <link rel="manifest" href="./scripts/site.webmanifest" />
+
+    <title>Markdown Studio</title>
+
+    <!-- Core -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/vue/3.4.21/vue.global.prod.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.0/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css"
+      id="hljs-theme"
+    />
+
+    <!-- Mermaid -->
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+
+    <!-- KaTeX -->
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,300;0,400;0,600;1,400&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&family=Playfair+Display:ital,wght@0,700;1,400&family=Source+Serif+4:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Sans:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=Raleway:wght@300;400;600;700&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css"
+    />
+
+    <link rel="stylesheet" href="./assets/style.css">
+  </head>
+  <body>
+    <div id="vue-root">
+      <!-- ══════════ TOPBAR ══════════ -->
+      <div id="topbar">
+        <div class="logo">
+          <div class="logo-mark"><i class="ti ti-markdown"></i></div>
+          <span class="logo-text">Studio</span>
+        </div>
+        <div class="tb-sep"></div>
+        <button class="tb-btn" @click="newFile" title="New (Ctrl+N)">
+          <i class="ti ti-file-plus"></i>New
+        </button>
+        <button class="tb-btn" @click="triggerMdUpload" title="Open">
+          <i class="ti ti-folder-open"></i>Open
+        </button>
+        <button
+          class="tb-btn"
+          :class="{active:unsaved,'warn-active':unsaved}"
+          @click="saveFile"
+          title="Save (Ctrl+S)"
+        >
+          <i class="ti ti-device-floppy"></i>{{unsaved?'Save*':'Saved'}}
+        </button>
+        <input
+          ref="mdFileInput"
+          type="file"
+          accept=".md,.markdown,.txt"
+          style="display: none"
+          @change="onMdFileUpload"
+        />
+        <div class="tb-sep"></div>
+        <span
+          v-if="!renamingFile"
+          class="fname-badge"
+          @dblclick="startRename"
+          title="Double-click to rename"
+          >{{activeFile?.name||'untitled.md'}}</span
+        >
+        <input
+          v-else
+          class="rename-input"
+          ref="renameInputRef"
+          v-model="renameVal"
+          @blur="finishRename"
+          @keyup.enter="finishRename"
+          @keyup.escape="renamingFile=false"
+        />
+        <div class="tb-sep"></div>
+        <button
+          class="tb-icon"
+          :class="{active:viewMode==='split'}"
+          @click="viewMode='split'"
+          title="Split"
+        >
+          <i class="ti ti-layout-columns"></i>
+        </button>
+        <button
+          class="tb-icon"
+          :class="{active:viewMode==='editor'}"
+          @click="viewMode='editor'"
+          title="Editor only"
+        >
+          <i class="ti ti-code"></i>
+        </button>
+        <button
+          class="tb-icon"
+          :class="{active:viewMode==='preview'}"
+          @click="viewMode='preview'"
+          title="Preview only"
+        >
+          <i class="ti ti-eye"></i>
+        </button>
+        <div class="tb-sep"></div>
+        <select class="tb-theme-sel" v-model="renderTheme" title="Render theme">
+          <option v-for="t in renderThemes" :key="t.id" :value="t.id">
+            {{t.name}}
+          </option>
+        </select>
+        <div class="tb-right">
+          <button class="tb-btn" @click="openImgManager">
+            <i class="ti ti-photo"></i>Images
+          </button>
+          <button class="tb-btn" @click="openTemplates">
+            <i class="ti ti-layout-grid"></i>Templates
+          </button>
+          <button class="tb-btn" @click="openExport">
+            <i class="ti ti-download"></i>Export
+          </button>
+          <div class="tb-sep"></div>
+          <button
+            class="tb-icon"
+            :class="{active:sidebarOpen}"
+            @click="sidebarOpen=!sidebarOpen"
+            title="Sidebar"
+          >
+            <i class="ti ti-layout-sidebar"></i>
+          </button>
+          <button
+            class="tb-icon"
+            :class="{active:showStylePanel}"
+            @click="showStylePanel=!showStylePanel"
+            title="Style"
+          >
+            <i class="ti ti-palette"></i>
+          </button>
+          <button
+            class="tb-icon"
+            :class="{active:focusMode}"
+            @click="focusMode=true"
+            title="Focus mode"
+          >
+            <i class="ti ti-maximize"></i>
+          </button>
+          <button
+            class="tb-icon"
+            @click="toggleDark"
+            :title="darkMode?'Light mode':'Dark mode'"
+          >
+            <i :class="darkMode?'ti ti-sun':'ti ti-moon'"></i>
+          </button>
+          <button class="tb-icon" @click="showShortcuts=true" title="Shortcuts">
+            <i class="ti ti-keyboard"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- ══════════ BODY ══════════ -->
+      <div id="app-body">
+        <!-- SIDEBAR -->
+        <div id="sidebar" :class="{collapsed:!sidebarOpen}">
+          <div class="sb-section">
+            <div class="sb-title">
+              Files
+              <button
+                class="sb-btn"
+                style="width: auto; padding: 1px 4px"
+                @click="newFile"
+              >
+                <i class="ti ti-plus"></i>
+              </button>
+            </div>
+            <div
+              v-for="f in files"
+              :key="f.id"
+              class="file-item"
+              :class="{active:activeFileId===f.id}"
+              @click="switchFile(f.id)"
+              @contextmenu.prevent="openFileCtx($event,f)"
+            >
+              <i class="ti ti-file-text"></i>
+              <span class="file-name">{{f.name}}</span>
+              <button class="file-del" @click.stop="deleteFile(f.id)">
+                <i class="ti ti-x"></i>
+              </button>
+            </div>
+            <button
+              class="sb-btn"
+              style="color: var(--fg3); margin-top: 2px"
+              @click="triggerMdUpload"
+            >
+              <i class="ti ti-upload"></i>Upload .md
+            </button>
+          </div>
+          <div class="sb-scroll">
+            <div class="sb-section" style="border: none">
+              <div class="sb-title">Templates</div>
+              <button
+                v-for="t in TEMPLATES.slice(0,7)"
+                :key="t.id"
+                class="sb-btn"
+                @click="loadTemplate(t)"
+              >
+                <i :class="'ti '+t.icon"></i> {{t.name}}
+              </button>
+              <button
+                class="sb-btn"
+                style="color: var(--acc)"
+                @click="openTemplates"
+              >
+                <i class="ti ti-dots"></i> All…
+              </button>
+            </div>
+            <div class="sb-section" style="border: none; padding-top: 4px">
+              <div class="sb-title">Outline</div>
+              <div
+                v-if="!headings.length"
+                style="font-size: 11px; color: var(--fg3); padding: 2px 6px"
+              >
+                No headings
+              </div>
+              <div
+                v-for="h in headings"
+                :key="h.slug"
+                class="outline-item"
+                :style="{paddingLeft:(h.level-1)*10+5+'px'}"
+                @click="scrollToHeading(h.slug)"
+              >
+                <i
+                  class="ti ti-hash"
+                  style="font-size: 11px; opacity: 0.4; flex-shrink: 0"
+                ></i>
+                <span style="overflow: hidden; text-overflow: ellipsis"
+                  >{{h.text}}</span
+                >
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- MAIN -->
+        <div id="main">
+          <!-- EDITOR PANE -->
+          <div
+            id="editor-pane"
+            :class="{hidden:viewMode==='preview'}"
+            :style="viewMode==='split'?{flex:'0 0 '+editorWidth+'px',minWidth:'180px'}:{flex:'1'}"
+          >
+            <!-- Editor sub-toolbar -->
+            <div class="pane-toolbar">
+              <span class="pane-label">Editor</span>
+              <!-- Mode tabs -->
+              <button
+                class="tool-btn"
+                :class="{active:editorMode==='text'}"
+                @click="editorMode='text'"
+                title="Text mode"
+              >
+                <i class="ti ti-code"></i>
+              </button>
+              <button
+                class="tool-btn"
+                :class="{active:editorMode==='blocks'}"
+                @click="editorMode='blocks'"
+                title="Block editor"
+              >
+                <i class="ti ti-layout-rows"></i>
+              </button>
+              <div class="tool-sep"></div>
+              <template v-if="editorMode==='text'">
+                <button
+                  class="tool-btn"
+                  @click="fmt('**','**')"
+                  title="Bold (Ctrl+B)"
+                >
+                  <i class="ti ti-bold"></i>
+                </button>
+                <button
+                  class="tool-btn"
+                  @click="fmt('*','*')"
+                  title="Italic (Ctrl+I)"
+                >
+                  <i class="ti ti-italic"></i>
+                </button>
+                <button class="tool-btn" @click="fmt('~~','~~')" title="Strike">
+                  <i class="ti ti-strikethrough"></i>
+                </button>
+                <button class="tool-btn" @click="fmt('`','`')" title="Code">
+                  <i class="ti ti-code"></i>
+                </button>
+                <div class="tool-sep"></div>
+                <button class="tool-btn" @click="fmtLine('# ')" title="H1">
+                  <i class="ti ti-h-1"></i>
+                </button>
+                <button class="tool-btn" @click="fmtLine('## ')" title="H2">
+                  <i class="ti ti-h-2"></i>
+                </button>
+                <button class="tool-btn" @click="fmtLine('### ')" title="H3">
+                  <i class="ti ti-h-3"></i>
+                </button>
+                <div class="tool-sep"></div>
+                <button class="tool-btn" @click="fmtLine('- ')" title="Bullet">
+                  <i class="ti ti-list"></i>
+                </button>
+                <button
+                  class="tool-btn"
+                  @click="fmtLine('1. ')"
+                  title="Numbered"
+                >
+                  <i class="ti ti-list-numbers"></i>
+                </button>
+                <button class="tool-btn" @click="fmtLine('> ')" title="Quote">
+                  <i class="ti ti-blockquote"></i>
+                </button>
+                <button
+                  class="tool-btn"
+                  @click="fmtBlock('```\\n','\\n```')"
+                  title="Code block"
+                >
+                  <i class="ti ti-terminal-2"></i>
+                </button>
+                <div class="tool-sep"></div>
+                <button
+                  class="tool-btn"
+                  @click="insertMermaid"
+                  title="Insert Mermaid diagram"
+                  style="color: var(--acc)"
+                >
+                  <i class="ti ti-topology-star"></i>
+                </button>
+                <button
+                  class="tool-btn"
+                  @click="insertMath"
+                  title="Insert LaTeX / Math"
+                  style="color: var(--acc)"
+                >
+                  <i class="ti ti-math-function"></i>
+                </button>
+                <div class="tool-sep"></div>
+                <button class="tool-btn" @click="insertLink" title="Link">
+                  <i class="ti ti-link"></i>
+                </button>
+                <button
+                  class="tool-btn"
+                  @click="insertImageFromLib"
+                  title="Image"
+                >
+                  <i class="ti ti-photo"></i>
+                </button>
+                <button class="tool-btn" @click="insertTable" title="Table">
+                  <i class="ti ti-table"></i>
+                </button>
+                <button
+                  class="tool-btn"
+                  @click="fmtLine('---')"
+                  title="Divider"
+                >
+                  <i class="ti ti-minus"></i>
+                </button>
+                <div class="tool-sep"></div>
+                <button class="tool-btn" @click="undo" title="Undo (Ctrl+Z)">
+                  <i class="ti ti-arrow-back-up"></i>
+                </button>
+                <button class="tool-btn" @click="redo" title="Redo (Ctrl+Y)">
+                  <i class="ti ti-arrow-forward-up"></i>
+                </button>
+                <div class="tool-sep"></div>
+                <button
+                  class="tool-btn"
+                  :class="{active:wordWrap}"
+                  @click="wordWrap=!wordWrap"
+                  title="Word wrap"
+                >
+                  <i class="ti ti-text-wrap"></i>
+                </button>
+                <button
+                  class="tool-btn"
+                  @click="openFR"
+                  title="Find & Replace (Ctrl+H)"
+                >
+                  <i class="ti ti-replace"></i>
+                </button>
+              </template>
+              <template v-else>
+                <span
+                  style="font-size: 11px; color: var(--fg2); margin-left: 4px"
+                  >Drag
+                  <i class="ti ti-grip-vertical" style="font-size: 11px"></i> to
+                  reorder · Click + to add blocks</span
+                >
+              </template>
+            </div>
+
+            <!-- TEXT MODE -->
+            <div
+              id="editor-wrap"
+              v-show="editorMode==='text'"
+              @contextmenu.prevent="openEditorCtx"
+            >
+              <textarea
+                id="editor-textarea"
+                ref="editorRef"
+                v-model="currentContent"
+                :style="{whiteSpace:wordWrap?'pre-wrap':'pre',fontSize:editorFontSize+'px',lineHeight:editorLineHeight}"
+                @keydown="onEditorKeydown"
+                @input="onInput"
+                spellcheck="false"
+                placeholder="# Start writing…"
+              ></textarea>
+            </div>
+
+            <!-- BLOCK MODE -->
+            <div
+              id="editor-wrap"
+              v-show="editorMode==='blocks'"
+              style="overflow-y: auto; background: var(--bg1)"
+            >
+              <div class="block-editor">
+                <div
+                  v-for="(block,idx) in blocks"
+                  :key="block.id"
+                  class="block-item"
+                  draggable="true"
+                  @dragstart="onBlockDragStart($event,idx)"
+                  @dragover.prevent="onBlockDragOver($event,idx)"
+                  @drop="onBlockDrop($event,idx)"
+                  @dragend="onBlockDragEnd"
+                >
+                  <div class="block-handle">
+                    <i class="ti ti-grip-vertical"></i>
+                  </div>
+                  <span class="block-type-badge">{{block.type}}</span>
+                  <div
+                    class="block-content"
+                    :id="'bce-'+block.id"
+                    contenteditable="true"
+                    @input="onBlockInput(idx,$event)"
+                    style="outline: none"
+                  >
+                    {{block.content}}
+                  </div>
+                  <div class="block-actions">
+                    <button
+                      class="block-action"
+                      @click="duplicateBlock(idx)"
+                      title="Duplicate"
+                    >
+                      <i class="ti ti-copy"></i>
+                    </button>
+                    <button
+                      class="block-action"
+                      @click="openBlockPicker(idx,$event)"
+                      title="Change type"
+                    >
+                      <i class="ti ti-dots"></i>
+                    </button>
+                    <button
+                      class="block-action danger"
+                      @click="deleteBlock(idx)"
+                      title="Delete"
+                    >
+                      <i class="ti ti-trash"></i>
+                    </button>
+                  </div>
+                </div>
+                <button
+                  class="block-add-btn"
+                  @click="addBlock(blocks.length-1,'paragraph')"
+                >
+                  <i class="ti ti-plus"></i> Add block
+                </button>
+              </div>
+              <!-- Block type picker -->
+              <div
+                v-if="blockPickerOpen"
+                class="block-type-picker"
+                :style="{left:blockPickerPos.x+'px',top:blockPickerPos.y+'px',position:'fixed'}"
+              >
+                <div
+                  v-for="bt in BLOCK_TYPES"
+                  :key="bt.type"
+                  class="block-type-opt"
+                  @click="blocks[blockPickerIdx].type=bt.type;blockPickerOpen=false;syncContentFromBlocks()"
+                >
+                  <i :class="'ti '+bt.icon"></i> {{bt.label}}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- RESIZER -->
+          <div
+            id="resizer"
+            v-show="viewMode==='split'"
+            @mousedown="startResize"
+          ></div>
+
+          <!-- PREVIEW PANE -->
+          <div id="preview-pane" :class="{hidden:viewMode==='editor'}">
+            <div class="pane-toolbar">
+              <span class="pane-label">Preview</span>
+              <div class="tool-sep"></div>
+              <span style="font-size: 11px; color: var(--fg2)"
+                >{{currentThemeName}}</span
+              >
+              <div style="margin-left: auto; display: flex; gap: 3px">
+                <button
+                  class="tool-btn"
+                  :class="{active:showStylePanel}"
+                  @click="showStylePanel=!showStylePanel"
+                  title="Customize style"
+                >
+                  <i class="ti ti-adjustments-horizontal"></i>
+                </button>
+                <button class="tool-btn" @click="copyHtml" title="Copy HTML">
+                  <i class="ti ti-copy"></i>
+                </button>
+                <button class="tool-btn" @click="openExport" title="Export">
+                  <i class="ti ti-download"></i>
+                </button>
+              </div>
+            </div>
+            <div id="preview-scroller" @contextmenu.prevent="openPreviewCtx">
+              <div
+                id="preview-page"
+                :class="['md-body','theme-'+renderTheme]"
+                :style="previewPageStyle"
+                v-html="renderedHtml"
+              ></div>
+            </div>
+          </div>
+
+          <!-- STYLE PANEL -->
+          <transition name="slide-r">
+            <div
+              id="style-panel-wrap"
+              class="style-panel"
+              v-if="showStylePanel"
+            >
+              <div
+                style="
+                  height: 36px;
+                  min-height: 36px;
+                  display: flex;
+                  align-items: center;
+                  justify-content: space-between;
+                  padding: 0 10px;
+                  border-bottom: 1px solid var(--border);
+                  flex-shrink: 0;
+                "
+              >
+                <span
+                  style="
+                    font-size: 12px;
+                    font-weight: 600;
+                    display: flex;
+                    align-items: center;
+                    gap: 5px;
+                  "
+                  ><i class="ti ti-palette" style="color: var(--acc)"></i
+                  >Style</span
+                >
+                <button class="tool-btn" @click="showStylePanel=false">
+                  <i class="ti ti-x"></i>
+                </button>
+              </div>
+              <div class="style-panel-body">
+                <div class="sp-section">
+                  <div class="sp-title">Body font</div>
+                  <div>
+                    <span
+                      v-for="f in fontChoices"
+                      :key="f.val"
+                      class="font-chip"
+                      :class="{active:customFont===f.val}"
+                      :style="{fontFamily:f.val}"
+                      @click="customFont=f.val"
+                      >{{f.name}}</span
+                    >
+                  </div>
+                </div>
+                <div class="sp-section">
+                  <div class="sp-title">Typography</div>
+                  <div class="slider-row">
+                    <label>Font size</label
+                    ><input
+                      type="range"
+                      min="12"
+                      max="22"
+                      v-model.number="cFontSize"
+                    /><span class="val">{{cFontSize}}px</span>
+                  </div>
+                  <div class="slider-row">
+                    <label>Line height</label
+                    ><input
+                      type="range"
+                      min="1.2"
+                      max="2.4"
+                      step=".05"
+                      v-model.number="cLineH"
+                    /><span class="val">{{cLineH.toFixed(1)}}</span>
+                  </div>
+                  <div class="slider-row">
+                    <label>Para gap</label
+                    ><input
+                      type="range"
+                      min="0"
+                      max="2"
+                      step=".1"
+                      v-model.number="cParaGap"
+                    /><span class="val">{{cParaGap.toFixed(1)}}em</span>
+                  </div>
+                </div>
+                <div class="sp-section">
+                  <div class="sp-title">Headings</div>
+                  <div>
+                    <span
+                      v-for="f in fontChoices"
+                      :key="f.val"
+                      class="font-chip"
+                      :class="{active:cHeadFont===f.val}"
+                      :style="{fontFamily:f.val}"
+                      @click="cHeadFont=f.val"
+                      >{{f.name}}</span
+                    >
+                  </div>
+                  <div class="slider-row" style="margin-top: 6px">
+                    <label>H1 size</label
+                    ><input
+                      type="range"
+                      min="1.2"
+                      max="4"
+                      step=".05"
+                      v-model.number="cH1"
+                    /><span class="val">{{cH1.toFixed(1)}}em</span>
+                  </div>
+                  <div class="slider-row">
+                    <label>H2 size</label
+                    ><input
+                      type="range"
+                      min="1"
+                      max="3"
+                      step=".05"
+                      v-model.number="cH2"
+                    /><span class="val">{{cH2.toFixed(1)}}em</span>
+                  </div>
+                </div>
+                <div class="sp-section">
+                  <div class="sp-title">Page</div>
+                  <div class="slider-row">
+                    <label>Max width</label
+                    ><input
+                      type="range"
+                      min="400"
+                      max="1100"
+                      step="10"
+                      v-model.number="cWidth"
+                    /><span class="val">{{cWidth}}</span>
+                  </div>
+                  <div class="slider-row">
+                    <label>Padding H</label
+                    ><input
+                      type="range"
+                      min="12"
+                      max="120"
+                      step="4"
+                      v-model.number="cPadH"
+                    /><span class="val">{{cPadH}}px</span>
+                  </div>
+                  <div class="slider-row">
+                    <label>Padding V</label
+                    ><input
+                      type="range"
+                      min="12"
+                      max="120"
+                      step="4"
+                      v-model.number="cPadV"
+                    /><span class="val">{{cPadV}}px</span>
+                  </div>
+                </div>
+                <div class="sp-section">
+                  <div class="sp-title">Colors</div>
+                  <div class="color-row">
+                    <label>Body text</label
+                    ><input type="color" v-model="cColorText" /><span
+                      style="font-size: 10px; color: var(--fg3)"
+                      >{{cColorText||'theme'}}</span
+                    >
+                  </div>
+                  <div class="color-row">
+                    <label>Headings</label
+                    ><input type="color" v-model="cColorHead" /><span
+                      style="font-size: 10px; color: var(--fg3)"
+                      >{{cColorHead||'theme'}}</span
+                    >
+                  </div>
+                  <div class="color-row">
+                    <label>Links</label
+                    ><input type="color" v-model="cColorLink" /><span
+                      style="font-size: 10px; color: var(--fg3)"
+                      >{{cColorLink||'theme'}}</span
+                    >
+                  </div>
+                  <div class="color-row">
+                    <label>Background</label
+                    ><input type="color" v-model="cColorBg" /><span
+                      style="font-size: 10px; color: var(--fg3)"
+                      >{{cColorBg||'theme'}}</span
+                    >
+                  </div>
+                </div>
+                <div
+                  class="sp-section"
+                  style="display: flex; flex-direction: column; gap: 5px"
+                >
+                  <button
+                    class="btn btn-sm"
+                    @click="resetStyle"
+                    style="width: 100%"
+                  >
+                    <i class="ti ti-refresh"></i>Reset
+                  </button>
+                  <button
+                    class="btn btn-sm btn-primary"
+                    @click="saveAsTheme"
+                    style="width: 100%"
+                  >
+                    <i class="ti ti-bookmark"></i>Save as template
+                  </button>
+                </div>
+              </div>
+            </div>
+          </transition>
+        </div>
+        <!-- /#main -->
+      </div>
+      <!-- /#app-body -->
+
+      <!-- STATUS BAR -->
+      <div id="statusbar">
+        <span
+          ><span
+            class="status-dot"
+            :style="{background:unsaved?'var(--warn)':'var(--suc)'}"
+          ></span
+          >{{unsaved?'Unsaved':'Saved'}}</span
+        >
+        <span
+          ><i
+            class="ti ti-letter-case"
+            style="font-size: 11px; margin-right: 2px"
+          ></i
+          >{{wordCount}} words</span
+        >
+        <span>{{charCount}} chars · {{lineCount}} lines</span>
+        <span
+          ><i class="ti ti-clock" style="font-size: 11px; margin-right: 2px"></i
+          >~{{readTime}} min</span
+        >
+        <span style="margin-left: auto"
+          >{{activeFile?.name||'untitled.md'}} · {{currentThemeName}}</span
+        >
+        <span
+          style="cursor: pointer; color: var(--acc)"
+          @click="showShortcuts=true"
+          >⌨ Shortcuts</span
+        >
+      </div>
+
+      <!-- ════════ MODALS ════════ -->
+
+      <!-- EXPORT -->
+      <div
+        class="modal-overlay"
+        v-if="showExport"
+        @click.self="showExport=false"
+      >
+        <div class="modal-box modal-wide">
+          <div class="modal-header">
+            <div class="modal-title">
+              <i class="ti ti-download"></i>Export Document
+            </div>
+            <button class="modal-close" @click="showExport=false">
+              <i class="ti ti-x"></i>
+            </button>
+          </div>
+          <div class="export-grid">
+            <div
+              class="export-card"
+              @click="showPdfSettings=!showPdfSettings"
+              :class="{active:showPdfSettings}"
+            >
+              <i class="ti ti-file-type-pdf"></i>
+              <div class="export-card-name">PDF</div>
+              <div class="export-card-desc">Multi-page, print-ready</div>
+            </div>
+            <div class="export-card" @click="exportMarkdown">
+              <i class="ti ti-brand-markdown"></i>
+              <div class="export-card-name">Markdown</div>
+              <div class="export-card-desc">Original .md source</div>
+            </div>
+            <div class="export-card" @click="exportHTML">
+              <i class="ti ti-brand-html5"></i>
+              <div class="export-card-name">HTML</div>
+              <div class="export-card-desc">Standalone + Mermaid</div>
+            </div>
+            <div class="export-card" @click="exportDocx">
+              <i class="ti ti-file-word"></i>
+              <div class="export-card-name">Word (.doc)</div>
+              <div class="export-card-desc">MS Word compatible</div>
+            </div>
+            <div class="export-card" @click="exportTxt">
+              <i class="ti ti-file-text"></i>
+              <div class="export-card-name">Plain Text</div>
+              <div class="export-card-desc">No formatting</div>
+            </div>
+            <div class="export-card" @click="exportJSON">
+              <i class="ti ti-braces"></i>
+              <div class="export-card-name">JSON</div>
+              <div class="export-card-desc">Doc + metadata</div>
+            </div>
+          </div>
+          <div class="pdf-settings" v-if="showPdfSettings">
+            <div
+              style="
+                font-size: 11px;
+                font-weight: 600;
+                text-transform: uppercase;
+                letter-spacing: 0.07em;
+                color: var(--fg3);
+                margin-bottom: 10px;
+              "
+            >
+              <i class="ti ti-settings" style="margin-right: 4px"></i>PDF
+              Settings
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">Paper size</label>
+                <select v-model="pdfPaperSize">
+                  <option>A4</option>
+                  <option>Letter</option>
+                  <option>Legal</option>
+                  <option>A3</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Orientation</label>
+                <select v-model="pdfOrientation">
+                  <option value="portrait">Portrait</option>
+                  <option value="landscape">Landscape</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">Margins</label>
+                <select v-model="pdfMargins">
+                  <option value="normal">Normal (2cm)</option>
+                  <option value="narrow">Narrow (1cm)</option>
+                  <option value="wide">Wide (3cm)</option>
+                  <option value="none">None</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Scale</label>
+                <select v-model="pdfScale">
+                  <option value="100">100%</option>
+                  <option value="90">90%</option>
+                  <option value="80">80%</option>
+                  <option value="75">75%</option>
+                </select>
+              </div>
+            </div>
+            <label
+              style="
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                font-size: 12px;
+                margin-bottom: 10px;
+              "
+              ><input
+                type="checkbox"
+                v-model="pdfBg"
+                style="width: auto"
+              />Print background colors/graphics</label
+            >
+            <div
+              style="
+                background: var(--bg3);
+                border-radius: 6px;
+                padding: 8px 10px;
+                font-size: 11px;
+                color: var(--fg2);
+                margin-bottom: 8px;
+              "
+            >
+              <i
+                class="ti ti-info-circle"
+                style="color: var(--acc); margin-right: 4px"
+              ></i>
+              All pages export via the browser print dialog. Mermaid diagrams
+              and LaTeX expressions will be included.
+            </div>
+            <button
+              class="btn btn-primary"
+              style="width: 100%"
+              @click="exportPDF"
+            >
+              <i class="ti ti-file-type-pdf"></i>Export PDF Now
+            </button>
+          </div>
+          <div
+            style="
+              border-top: 1px solid var(--border);
+              padding-top: 14px;
+              margin-top: 8px;
+            "
+          >
+            <div
+              style="
+                font-size: 11px;
+                font-weight: 600;
+                text-transform: uppercase;
+                letter-spacing: 0.07em;
+                color: var(--fg3);
+                margin-bottom: 10px;
+              "
+            >
+              Metadata
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">Title</label
+                ><input v-model="exportTitle" placeholder="Document title" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Author</label
+                ><input v-model="exportAuthor" placeholder="Author name" />
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">Keywords</label
+                ><input
+                  v-model="exportKeywords"
+                  placeholder="comma, separated"
+                />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Date</label
+                ><input v-model="exportDate" type="date" />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- IMAGE MANAGER -->
+      <div
+        class="modal-overlay"
+        v-if="showImgManager"
+        @click.self="showImgManager=false"
+      >
+        <div class="modal-box modal-wide">
+          <div class="modal-header">
+            <div class="modal-title">
+              <i class="ti ti-photo"></i>Image Manager
+            </div>
+            <button class="modal-close" @click="showImgManager=false">
+              <i class="ti ti-x"></i>
+            </button>
+          </div>
+          <div
+            style="
+              display: flex;
+              align-items: center;
+              gap: 8px;
+              margin-bottom: 12px;
+              flex-wrap: wrap;
+            "
+          >
+            <button class="btn btn-primary btn-sm" @click="triggerImgUpload">
+              <i class="ti ti-upload"></i>Upload images
+            </button>
+            <input
+              ref="imgFileInput"
+              type="file"
+              accept="image/*"
+              multiple
+              style="display: none"
+              @change="onImgUpload"
+            />
+            <button
+              class="btn btn-sm"
+              @click="insertSelected"
+              :disabled="!selectedImgs.length"
+            >
+              <i class="ti ti-plus"></i>Insert ({{selectedImgs.length}})
+            </button>
+            <button
+              class="btn btn-sm"
+              v-if="selectedImgs.length"
+              @click="deleteSelected"
+              style="color: var(--err)"
+            >
+              <i class="ti ti-trash"></i>Delete
+            </button>
+            <span style="margin-left: auto; font-size: 11px; color: var(--fg3)"
+              >{{images.length}} image(s)</span
+            >
+          </div>
+          <div
+            v-if="!images.length"
+            style="text-align: center; padding: 48px; color: var(--fg3)"
+          >
+            <i
+              class="ti ti-photo-off"
+              style="
+                font-size: 42px;
+                display: block;
+                margin-bottom: 10px;
+                opacity: 0.4;
+              "
+            ></i
+            >No images yet
+          </div>
+          <div v-else class="img-grid">
+            <div
+              v-for="img in images"
+              :key="img.id"
+              class="img-card"
+              :class="{selected:selectedImgs.includes(img.id)}"
+              @click="toggleImgSel(img.id)"
+            >
+              <div v-if="selectedImgs.includes(img.id)" class="img-sel-badge">
+                <i class="ti ti-check" style="font-size: 10px"></i>
+              </div>
+              <img :src="img.data" :alt="img.name" />
+              <div class="img-card-info" :title="img.name">{{img.name}}</div>
+              <div
+                class="img-card-info"
+                style="color: var(--fg3); padding-top: 0"
+              >
+                {{img.width}}×{{img.height}}
+              </div>
+              <div class="img-card-actions">
+                <button @click.stop="openCrop(img)" title="Crop">
+                  <i class="ti ti-crop"></i>
+                </button>
+                <button @click.stop="openResize(img)" title="Resize">
+                  <i class="ti ti-resize"></i>
+                </button>
+                <button
+                  @click.stop="insertOneImage(img);showImgManager=false"
+                  title="Insert"
+                >
+                  <i class="ti ti-plus"></i>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- RESIZE -->
+      <div
+        class="modal-overlay"
+        v-if="showResize"
+        @click.self="showResize=false"
+      >
+        <div class="modal-box" style="width: 380px">
+          <div class="modal-header">
+            <div class="modal-title"><i class="ti ti-resize"></i>Resize</div>
+            <button class="modal-close" @click="showResize=false">
+              <i class="ti ti-x"></i>
+            </button>
+          </div>
+          <div v-if="resizeTgt">
+            <img
+              :src="resizeTgt.data"
+              style="
+                width: 100%;
+                max-height: 160px;
+                object-fit: contain;
+                background: var(--bg2);
+                border-radius: var(--rad);
+                margin-bottom: 12px;
+              "
+            />
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">Width (px)</label
+                ><input
+                  type="number"
+                  v-model.number="resW"
+                  @input="onRW"
+                  min="1"
+                />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Height (px)</label
+                ><input
+                  type="number"
+                  v-model.number="resH"
+                  @input="onRH"
+                  min="1"
+                />
+              </div>
+            </div>
+            <div
+              style="
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                margin-bottom: 10px;
+                font-size: 12px;
+              "
+            >
+              <input
+                type="checkbox"
+                id="lr"
+                v-model="resLock"
+                style="width: auto"
+              /><label for="lr">Lock aspect ratio</label>
+            </div>
+            <div class="form-group">
+              <label class="form-label"
+                >Quality: {{Math.round(resQ*100)}}%</label
+              ><input
+                type="range"
+                min=".1"
+                max="1"
+                step=".05"
+                v-model.number="resQ"
+              />
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn" @click="showResize=false">Cancel</button
+            ><button class="btn btn-primary" @click="applyResize">Apply</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- CROP -->
+      <div class="modal-overlay" v-if="showCrop" @click.self="showCrop=false">
+        <div class="modal-box" style="width: 580px">
+          <div class="modal-header">
+            <div class="modal-title"><i class="ti ti-crop"></i>Crop</div>
+            <button class="modal-close" @click="showCrop=false">
+              <i class="ti ti-x"></i>
+            </button>
+          </div>
+          <div v-if="cropTgt">
+            <div
+              style="
+                display: flex;
+                gap: 5px;
+                flex-wrap: wrap;
+                margin-bottom: 8px;
+              "
+            >
+              <button
+                v-for="p in cropPresets"
+                :key="p"
+                class="btn btn-sm"
+                @click="applyCropPreset(p)"
+              >
+                {{p}}
+              </button>
+              <button
+                class="btn btn-sm"
+                @click="cropX=0;cropY=0;cropW=cropTgt.width;cropH=cropTgt.height"
+              >
+                Reset
+              </button>
+            </div>
+            <div
+              class="crop-wrap"
+              ref="cropWrapRef"
+              @mousedown.prevent="onCropMouseDown"
+            >
+              <img
+                :src="cropTgt.data"
+                ref="cropImgRef"
+                @load="initCropDisplay"
+              />
+              <div
+                v-if="cropDisplayRect"
+                class="crop-sel"
+                :style="cropDisplayRect"
+              ></div>
+            </div>
+            <div
+              style="
+                display: grid;
+                grid-template-columns: repeat(4, 1fr);
+                gap: 8px;
+                margin-top: 10px;
+              "
+            >
+              <div class="form-group">
+                <label class="form-label">X</label
+                ><input type="number" v-model.number="cropX" min="0" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Y</label
+                ><input type="number" v-model.number="cropY" min="0" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">W</label
+                ><input type="number" v-model.number="cropW" min="1" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">H</label
+                ><input type="number" v-model.number="cropH" min="1" />
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn" @click="showCrop=false">Cancel</button
+            ><button class="btn btn-primary" @click="applyCrop">
+              Apply Crop
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- TEMPLATES -->
+      <div
+        class="modal-overlay"
+        v-if="showTemplates"
+        @click.self="showTemplates=false"
+      >
+        <div class="modal-box modal-wide">
+          <div class="modal-header">
+            <div class="modal-title">
+              <i class="ti ti-layout-grid"></i>Templates
+            </div>
+            <button class="modal-close" @click="showTemplates=false">
+              <i class="ti ti-x"></i>
+            </button>
+          </div>
+          <div class="tab-bar">
+            <div
+              class="tab"
+              :class="{active:tplTab==='builtin'}"
+              @click="tplTab='builtin'"
+            >
+              Built-in ({{TEMPLATES.length}})
+            </div>
+            <div
+              class="tab"
+              :class="{active:tplTab==='custom'}"
+              @click="tplTab='custom'"
+            >
+              My Templates ({{userTemplates.length}})
+            </div>
+          </div>
+          <div style="margin-top: 12px">
+            <div v-if="tplTab==='builtin'" class="template-grid">
+              <div
+                v-for="t in TEMPLATES"
+                :key="t.id"
+                class="template-card"
+                @click="loadTemplate(t);showTemplates=false"
+              >
+                <div class="template-icon"><i :class="'ti '+t.icon"></i></div>
+                <div class="template-name">{{t.name}}</div>
+                <div class="template-desc">{{t.desc}}</div>
+              </div>
+            </div>
+            <div v-else>
+              <div
+                v-if="!userTemplates.length"
+                style="text-align: center; padding: 40px; color: var(--fg3)"
+              >
+                <i
+                  class="ti ti-bookmark-off"
+                  style="
+                    font-size: 36px;
+                    display: block;
+                    margin-bottom: 8px;
+                    opacity: 0.4;
+                  "
+                ></i
+                >No custom templates yet
+              </div>
+              <div v-else class="template-grid">
+                <div
+                  v-for="t in userTemplates"
+                  :key="t.id"
+                  class="template-card"
+                  style="cursor: default"
+                >
+                  <div class="template-name">{{t.name}}</div>
+                  <div class="template-desc">
+                    {{t.desc||'Custom'}} · {{t.theme}}
+                  </div>
+                  <div style="display: flex; gap: 5px; margin-top: 8px">
+                    <button
+                      class="btn btn-sm btn-primary"
+                      @click="loadUserTemplate(t);showTemplates=false"
+                    >
+                      <i class="ti ti-download"></i>Use
+                    </button>
+                    <button
+                      class="btn btn-sm"
+                      @click="deleteUserTpl(t.id)"
+                      style="color: var(--err)"
+                    >
+                      <i class="ti ti-trash"></i>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SAVE TEMPLATE -->
+      <div
+        class="modal-overlay"
+        v-if="showSaveTpl"
+        @click.self="showSaveTpl=false"
+      >
+        <div class="modal-box" style="width: 400px">
+          <div class="modal-header">
+            <div class="modal-title">
+              <i class="ti ti-bookmark-plus"></i>Save Template
+            </div>
+            <button class="modal-close" @click="showSaveTpl=false">
+              <i class="ti ti-x"></i>
+            </button>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Name *</label
+            ><input
+              v-model="newTplName"
+              placeholder="My Research Template"
+              @keyup.enter="saveAsUserTemplate"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Description</label
+            ><input v-model="newTplDesc" placeholder="Brief description…" />
+          </div>
+          <div
+            style="
+              display: flex;
+              align-items: center;
+              gap: 8px;
+              margin-bottom: 12px;
+              font-size: 12px;
+            "
+          >
+            <input
+              type="checkbox"
+              id="tic"
+              v-model="tplInclude"
+              style="width: auto"
+            /><label for="tic">Include current content</label>
+          </div>
+          <div class="modal-footer">
+            <button class="btn" @click="showSaveTpl=false">Cancel</button
+            ><button class="btn btn-primary" @click="saveAsUserTemplate">
+              Save
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- FIND/REPLACE -->
+      <div class="modal-overlay" v-if="showFR" @click.self="showFR=false">
+        <div class="modal-box" style="width: 440px">
+          <div class="modal-header">
+            <div class="modal-title">
+              <i class="ti ti-replace"></i>Find & Replace
+            </div>
+            <button class="modal-close" @click="showFR=false">
+              <i class="ti ti-x"></i>
+            </button>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Find</label
+            ><input
+              v-model="frFind"
+              @keyup.enter="frDoFind"
+              placeholder="Search…"
+              ref="frFindRef"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Replace with</label
+            ><input
+              v-model="frReplace"
+              @keyup.enter="frReplaceOne"
+              placeholder="Replacement…"
+            />
+          </div>
+          <div
+            style="
+              display: flex;
+              gap: 14px;
+              font-size: 12px;
+              margin-bottom: 10px;
+            "
+          >
+            <label
+              ><input
+                type="checkbox"
+                v-model="frCase"
+                style="width: auto; margin-right: 4px"
+              />Case sensitive</label
+            >
+            <label
+              ><input
+                type="checkbox"
+                v-model="frRegex"
+                style="width: auto; margin-right: 4px"
+              />Regex</label
+            >
+            <label
+              ><input
+                type="checkbox"
+                v-model="frWhole"
+                style="width: auto; margin-right: 4px"
+              />Whole word</label
+            >
+          </div>
+          <div
+            v-if="frCount!==null"
+            style="
+              font-size: 12px;
+              color: var(--fg2);
+              margin-bottom: 8px;
+              padding: 6px 10px;
+              background: var(--bg2);
+              border-radius: 6px;
+            "
+          >
+            {{frCount}} match{{frCount!==1?'es':''}} found
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-sm" @click="frDoFind">
+              <i class="ti ti-search"></i>Find all
+            </button>
+            <button class="btn btn-sm" @click="frReplaceOne">
+              <i class="ti ti-replace"></i>Replace
+            </button>
+            <button class="btn btn-sm btn-primary" @click="frReplaceAll">
+              <i class="ti ti-replace-filled"></i>Replace all
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- SHORTCUTS -->
+      <div
+        class="modal-overlay"
+        v-if="showShortcuts"
+        @click.self="showShortcuts=false"
+      >
+        <div class="modal-box" style="width: 480px">
+          <div class="modal-header">
+            <div class="modal-title">
+              <i class="ti ti-keyboard"></i>Keyboard Shortcuts
+            </div>
+            <button class="modal-close" @click="showShortcuts=false">
+              <i class="ti ti-x"></i>
+            </button>
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr">
+            <div
+              v-for="(sc,i) in shortcuts"
+              :key="i"
+              style="
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding: 6px 8px;
+                border-bottom: 1px solid var(--border);
+                font-size: 12px;
+              "
+            >
+              <span style="color: var(--fg1)">{{sc.desc}}</span>
+              <kbd
+                style="
+                  font-family: var(--font-mono);
+                  font-size: 10px;
+                  background: var(--bg2);
+                  padding: 2px 6px;
+                  border-radius: 4px;
+                  border: 1px solid var(--border);
+                "
+                >{{sc.key}}</kbd
+              >
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- FOCUS MODE -->
+      <transition name="fade">
+        <div v-if="focusMode" class="focus-overlay">
+          <div class="focus-toolbar">
+            <button
+              class="tb-btn"
+              @click="openExport"
+              style="background: var(--bg2)"
+            >
+              <i class="ti ti-download"></i>
+            </button>
+            <button
+              class="tb-btn"
+              @click="focusMode=false"
+              style="background: var(--bg2)"
+            >
+              <i class="ti ti-minimize"></i>Exit
+            </button>
+          </div>
+          <div class="focus-content">
+            <div
+              class="focus-inner md-body"
+              :class="'theme-'+renderTheme"
+              :style="previewPageStyle"
+              v-html="renderedHtml"
+            ></div>
+          </div>
+        </div>
+      </transition>
+
+      <!-- CONTEXT MENU -->
+      <div
+        id="ctx-menu"
+        v-if="ctxMenu.show"
+        :style="{left:ctxMenu.x+'px',top:ctxMenu.y+'px'}"
+        @click.stop
+      >
+        <div v-if="ctxMenu.type==='editor'">
+          <div class="ctx-label">Format</div>
+          <div class="ctx-item" @click="fmt('**','**');closeCtx()">
+            <i class="ti ti-bold"></i>Bold<span class="ctx-shortcut"
+              >Ctrl+B</span
+            >
+          </div>
+          <div class="ctx-item" @click="fmt('*','*');closeCtx()">
+            <i class="ti ti-italic"></i>Italic<span class="ctx-shortcut"
+              >Ctrl+I</span
+            >
+          </div>
+          <div class="ctx-item" @click="fmt('`','`');closeCtx()">
+            <i class="ti ti-code"></i>Inline code
+          </div>
+          <div class="ctx-item" @click="fmtLine('> ');closeCtx()">
+            <i class="ti ti-blockquote"></i>Blockquote
+          </div>
+          <div class="ctx-sep"></div>
+          <div class="ctx-label">Insert</div>
+          <div class="ctx-item" @click="insertMermaid();closeCtx()">
+            <i class="ti ti-topology-star"></i>Mermaid diagram
+          </div>
+          <div class="ctx-item" @click="insertMath();closeCtx()">
+            <i class="ti ti-math-function"></i>LaTeX / Math block
+          </div>
+          <div class="ctx-item" @click="insertLink();closeCtx()">
+            <i class="ti ti-link"></i>Link…
+          </div>
+          <div class="ctx-item" @click="insertImageFromLib();closeCtx()">
+            <i class="ti ti-photo"></i>Image…
+          </div>
+          <div class="ctx-item" @click="insertTable();closeCtx()">
+            <i class="ti ti-table"></i>Table
+          </div>
+          <div class="ctx-sep"></div>
+          <div class="ctx-item" @click="doSelectAll();closeCtx()">
+            <i class="ti ti-select-all"></i>Select all<span class="ctx-shortcut"
+              >Ctrl+A</span
+            >
+          </div>
+          <div class="ctx-item" @click="doCopy();closeCtx()">
+            <i class="ti ti-copy"></i>Copy<span class="ctx-shortcut"
+              >Ctrl+C</span
+            >
+          </div>
+          <div class="ctx-sep"></div>
+          <div class="ctx-item" @click="openFR();closeCtx()">
+            <i class="ti ti-replace"></i>Find & Replace<span
+              class="ctx-shortcut"
+              >Ctrl+H</span
+            >
+          </div>
+          <div class="ctx-item danger" @click="clearEditor();closeCtx()">
+            <i class="ti ti-trash"></i>Clear editor
+          </div>
+        </div>
+        <div v-else-if="ctxMenu.type==='preview'">
+          <div class="ctx-label">Preview</div>
+          <div class="ctx-item" @click="copyHtml();closeCtx()">
+            <i class="ti ti-copy"></i>Copy HTML
+          </div>
+          <div class="ctx-item" @click="copyText();closeCtx()">
+            <i class="ti ti-file-text"></i>Copy plain text
+          </div>
+          <div class="ctx-sep"></div>
+          <div class="ctx-label">Export</div>
+          <div class="ctx-item" @click="exportPDF();closeCtx()">
+            <i class="ti ti-file-type-pdf"></i>Export PDF
+          </div>
+          <div class="ctx-item" @click="exportHTML();closeCtx()">
+            <i class="ti ti-brand-html5"></i>Export HTML
+          </div>
+          <div class="ctx-item" @click="exportMarkdown();closeCtx()">
+            <i class="ti ti-markdown"></i>Export Markdown
+          </div>
+          <div class="ctx-sep"></div>
+          <div class="ctx-item" @click="focusMode=true;closeCtx()">
+            <i class="ti ti-maximize"></i>Focus / Read mode
+          </div>
+        </div>
+        <div v-else-if="ctxMenu.type==='file'">
+          <div class="ctx-item" @click="switchFile(ctxMenu.fileId);closeCtx()">
+            <i class="ti ti-file-text"></i>Open
+          </div>
+          <div
+            class="ctx-item"
+            @click="startRenameById(ctxMenu.fileId);closeCtx()"
+          >
+            <i class="ti ti-pencil"></i>Rename
+          </div>
+          <div
+            class="ctx-item"
+            @click="duplicateFile(ctxMenu.fileId);closeCtx()"
+          >
+            <i class="ti ti-copy"></i>Duplicate
+          </div>
+          <div
+            class="ctx-item"
+            @click="exportSingle(ctxMenu.fileId,'md');closeCtx()"
+          >
+            <i class="ti ti-download"></i>Download .md
+          </div>
+          <div class="ctx-sep"></div>
+          <div
+            class="ctx-item danger"
+            @click="deleteFile(ctxMenu.fileId);closeCtx()"
+          >
+            <i class="ti ti-trash"></i>Delete
+          </div>
+        </div>
+      </div>
+
+      <!-- NOTIFICATIONS -->
+      <div id="notif-area">
+        <div
+          v-for="n in notifications"
+          :key="n.id"
+          class="notif"
+          :class="n.type"
+        >
+          <i
+            :class="n.type==='success'?'ti ti-circle-check':n.type==='error'?'ti ti-alert-circle':n.type==='warn'?'ti ti-alert-triangle':'ti ti-info-circle'"
+          ></i>
+          {{n.msg}}
+        </div>
+      </div>
+    </div>
+    <!-- #vue-root -->
+
+    <script src="./scripts/script.js"></script>
+    <script>
+      let app;
+    </script>
+  </body>
+</html>
