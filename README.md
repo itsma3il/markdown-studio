@@ -38,35 +38,3 @@ python3 -m http.server 8000
 ## License
 This project is available under the MIT License. See `LICENSE`.
 
-## Publishing (recommended professional options)
-
-1) GitHub Pages (simple, free)
-	- Create a GitHub repository and push this project.
-	- In repository Settings → Pages, set branch to `main` (or `gh-pages`) and folder to `/ (root)` or `/docs` depending on your layout.
-	- Optionally add a `CNAME` file for a custom domain and enable HTTPS.
-
-2) Vercel (fast CDN, automatic builds)
-	- Connect your GitHub repo to Vercel, and deploy. Vercel auto-detects static sites.
-	- Add a custom domain and enable HTTPS (automatic).
-
-3) Netlify (CI + deploy previews)
-	- Connect repo to Netlify, set build command `none` (static), and publish directory `/`.
-	- Configure redirects, headers, and a custom domain.
-
-Professional polish checklist:
-- Add a `CNAME` (or configure domain) and set up HTTPS.  
-- Add social preview metadata (`og:title`, `og:description`, `twitter:card`) in `index.html`.  
-- Add a `README.md`, `LICENSE` (done), and release notes.  
-- Add a small CI job for link checking or accessibility (optional).  
-
-## Example GitHub Pages deploy commands
-```bash
-git init
-git add .
-git commit -m "Initial commit"
-git branch -M main
-git remote add origin git@github.com:YOUR_USERNAME/YOUR_REPO.git
-git push -u origin main
-# then enable Pages in repo settings or push to gh-pages branch
-```
-
