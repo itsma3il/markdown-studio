@@ -1,3 +1,9 @@
+/*
+  scripts/script.js — Markdown Studio application logic
+  Copyright (c) 2026 MOUSDIK ISMAIL
+  Licensed under the MIT License (see ../LICENSE)
+*/
+
 const TEMPLATES = [
   {
     id: "research",
