@@ -132,22 +132,21 @@ const TEMPLATES = [
   },
 ];
 
-
-const BLOCK_TYPES=[
-  {type:'paragraph',label:'Paragraph',icon:'ti-align-left'},
-  {type:'heading1',label:'Heading 1',icon:'ti-h-1',prefix:'# '},
-  {type:'heading2',label:'Heading 2',icon:'ti-h-2',prefix:'## '},
-  {type:'heading3',label:'Heading 3',icon:'ti-h-3',prefix:'### '},
-  {type:'heading4',label:'Heading 4',icon:'ti-h-4',prefix:'#### '},
-  {type:'bullet',label:'Bullet List',icon:'ti-list'},
-  {type:'numbered',label:'Numbered List',icon:'ti-list-numbers'},
-  {type:'blockquote',label:'Quote',icon:'ti-blockquote'},
-  {type:'code',label:'Code Block',icon:'ti-code'},
-  {type:'mermaid',label:'Mermaid Diagram',icon:'ti-topology-star'},
-  {type:'math',label:'Math / LaTeX',icon:'ti-math-function'},
-  {type:'table',label:'Table',icon:'ti-table'},
-  {type:'divider',label:'Divider',icon:'ti-minus'},
-  {type:'image',label:'Image',icon:'ti-photo'},
+const BLOCK_TYPES = [
+  { type: "paragraph", label: "Paragraph", icon: "ti-align-left" },
+  { type: "heading1", label: "Heading 1", icon: "ti-h-1", prefix: "# " },
+  { type: "heading2", label: "Heading 2", icon: "ti-h-2", prefix: "## " },
+  { type: "heading3", label: "Heading 3", icon: "ti-h-3", prefix: "### " },
+  { type: "heading4", label: "Heading 4", icon: "ti-h-4", prefix: "#### " },
+  { type: "bullet", label: "Bullet List", icon: "ti-list" },
+  { type: "numbered", label: "Numbered List", icon: "ti-list-numbers" },
+  { type: "blockquote", label: "Quote", icon: "ti-blockquote" },
+  { type: "code", label: "Code Block", icon: "ti-code" },
+  { type: "mermaid", label: "Mermaid Diagram", icon: "ti-topology-star" },
+  { type: "math", label: "Math / LaTeX", icon: "ti-math-function" },
+  { type: "table", label: "Table", icon: "ti-table" },
+  { type: "divider", label: "Divider", icon: "ti-minus" },
+  { type: "image", label: "Image", icon: "ti-photo" },
 ];
 
 function detectBlockType(text) {
@@ -1044,6 +1043,7 @@ appInstance = createApp({
     /* ─── RENDERER ─── */
     const buildRenderer = () => {
       const r = new marked.Renderer();
+
       r.heading = (text, level) => {
         const slug = text
           .replace(/<[^>]*>/g, "")
@@ -1052,6 +1052,7 @@ appInstance = createApp({
           .replace(/[^\w-]/g, "");
         return `<h${level} id="${slug}">${text}</h${level}>`;
       };
+
       r.code = (code, lang) => {
         if (lang === "mermaid") {
           const id = "mm-" + mkid();
@@ -1069,6 +1070,7 @@ appInstance = createApp({
         }
         return `<pre><code class="hljs ${lang || ""}">${h}</code></pre>`;
       };
+
       r.image = (href, title, text) => {
         const stored = images.value.find(
           (i) => i.id === href || i.name === href,
@@ -1084,23 +1086,38 @@ appInstance = createApp({
       };
       return r;
     };
-    const processLatex = (src) => {
-      src = src.replace(/\$\$([\s\S]+?)\$\$/g, (_, expr) => {
-        try {
-          return `<div class="katex-block">${katex.renderToString(expr.trim(), { displayMode: true, throwOnError: false })}</div>`;
-        } catch (e) {
-          return `<div class="katex-error">LaTeX: ${e.message}</div>`;
-        }
-      });
-      src = src.replace(/\$([^\n$]+?)\$/g, (_, expr) => {
-        try {
-          return `<span class="katex-inline">${katex.renderToString(expr.trim(), { displayMode: false, throwOnError: false })}</span>`;
-        } catch (e) {
-          return `<span class="katex-error">${expr}</span>`;
-        }
-      });
-      return src;
-    };
+
+    // const processLatex = (src) => {
+    //   // Helper: Decodes HTML entities (like &amp; or &lt;) created by Marked back into math symbols
+    //   const decodeHtml = (html) => {
+    //     const txt = document.createElement("textarea");
+    //     txt.innerHTML = html;
+    //     return txt.value;
+    //   };
+
+    //   // Process Display Mode: $$ ... $$
+    //   src = src.replace(/\$\$([\s\S]+?)\$\$/g, (_, expr) => {
+    //     try {
+    //       const cleanExpr = decodeHtml(expr.trim());
+    //       return `<div class="katex-block">${katex.renderToString(cleanExpr, { displayMode: true, throwOnError: false })}</div>`;
+    //     } catch (e) {
+    //       return `<div class="katex-error">LaTeX: ${e.message}</div>`;
+    //     }
+    //   });
+
+    //   // Process Inline Mode: $ ... $
+    //   src = src.replace(/\$([^\n$]+?)\$/g, (_, expr) => {
+    //     try {
+    //       const cleanExpr = decodeHtml(expr.trim());
+    //       return `<span class="katex-inline">${katex.renderToString(cleanExpr, { displayMode: false, throwOnError: false })}</span>`;
+    //     } catch (e) {
+    //       return `<span class="katex-error">${expr}</span>`;
+    //     }
+    //   });
+
+    //   return src;
+    // };
+
     const renderedHtml = computed(() => {
       try {
         marked.setOptions({
@@ -1108,8 +1125,48 @@ appInstance = createApp({
           breaks: true,
           gfm: true,
         });
-        let src = processLatex(currentContent.value || "");
+
+        let src = currentContent.value || "";
+        const mathBlocks = [];
+
+        // 1. EXTRACT MATH: Save exact LaTeX strings before Marked destroys the backslashes
+        src = src.replace(/\$\$([\s\S]+?)\$\$/g, (match, expr) => {
+          // Use purely alphanumeric IDs so Marked.js doesn't try to bold or italicize them
+          const id = `KATEXDISPLAYPLACEHOLDER${mathBlocks.length}XYZ`;
+          mathBlocks.push({ id, expr, displayMode: true });
+          return id;
+        });
+
+        src = src.replace(/\$([^\n$]+?)\$/g, (match, expr) => {
+          const id = `KATEXINLINEPLACEHOLDER${mathBlocks.length}XYZ`;
+          mathBlocks.push({ id, expr, displayMode: false });
+          return id;
+        });
+
+        // 2. PARSE MARKDOWN: Marked safely builds tables using the text placeholders
         let html = marked.parse(src);
+        console.log("mathblocks:", mathBlocks);
+
+        // 3. INJECT KATEX: Replace placeholders with fully rendered KaTeX HTML
+        mathBlocks.forEach((block) => {
+          try {
+            const rendered = katex.renderToString(block.expr.trim(), {
+              displayMode: block.displayMode,
+              throwOnError: false,
+            });
+            const wrapper = block.displayMode
+              ? `<div class="katex-block">${rendered}</div>`
+              : `<span class="katex-inline">${rendered}</span>`;
+            html = html.replace(block.id, wrapper);
+          } catch (e) {
+            const errWrapper = block.displayMode
+              ? `<div class="katex-error">LaTeX: ${e.message}</div>`
+              : `<span class="katex-error">${block.expr}</span>`;
+            html = html.replace(block.id, errWrapper);
+          }
+        });
+
+        // 4. APPLY STYLES (Your existing style overrides)
         const ov = [];
         if (cColorText.value)
           ov.push(`#preview-page{color:${cColorText.value}!important}`);
@@ -1129,12 +1186,15 @@ appInstance = createApp({
           ov.push(`#preview-page h2{font-size:${cH2.value}em!important}`);
         if (cParaGap.value !== 0.75)
           ov.push(`#preview-page p{margin:${cParaGap.value}em 0!important}`);
+
         if (ov.length) html = `<style>${ov.join(" ")}</style>` + html;
+
         return html;
       } catch (e) {
         return `<p style="color:red">Render error: ${e.message}</p>`;
       }
     });
+
     const renderMermaidInPreview = async () => {
       await nextTick();
       if (typeof mermaid === "undefined") return;
@@ -1147,6 +1207,7 @@ appInstance = createApp({
         } catch (e) {}
       }
     };
+
     watch(renderedHtml, () => setTimeout(renderMermaidInPreview, 80));
 
     /* ─── PERSISTENCE ─── */

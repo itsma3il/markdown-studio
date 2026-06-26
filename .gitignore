@@ -38,3 +38,6 @@ logs/
 .cache/
 
 *.zip
+.vite/
+old-prototype/
+tsconfig.tsbuildinfo
