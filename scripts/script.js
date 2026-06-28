@@ -463,7 +463,7 @@ function setupMarked() {
   renderer.code = (code, lang) => {
     if (lang === "mermaid") {
       const id = "mmd-" + Math.random().toString(36).slice(2, 8);
-      return `<div class="mermaid-block code-block-wrap" data-id="${id}" data-code="${escHtml(code)}"><span class="code-lang">mermaid</span><pre class="mermaid">${escHtml(code)}</pre></div>`;
+      return `<div class="mermaid-block code-block-wrap" data-id="${id}" data-code="${escHtml(code)}"><span class="code-lang">mermaid</span><pre class="mermaid mermaid-source">${escHtml(code)}</pre></div>`;
     }
     const validLang = lang && hljs && hljs.getLanguage(lang) ? lang : null;
     const highlighted = validLang
@@ -532,10 +532,19 @@ window.copyCode = function (btn) {
 function resolvePreviewImages(container, imageMap) {
   container.querySelectorAll("img[src]").forEach((img) => {
     const src = img.getAttribute("src") || "";
-    const mapped = imageMap?.[src];
+    const normalized = src.replace(/^\.\//, "");
+    let decoded = normalized;
+    try {
+      decoded = decodeURIComponent(normalized);
+    } catch {}
+    const mapped =
+      imageMap?.[src] ||
+      imageMap?.[normalized] ||
+      imageMap?.[decoded] ||
+      imageMap?.[decoded.replace(/^\.\//, "")];
     if (mapped) {
       img.src = mapped;
-      img.dataset.path = src;
+      img.dataset.path = decoded;
     }
   });
 }
@@ -550,7 +559,11 @@ function copyBlockSource(kind, wrap) {
   } else if (kind === "table") {
     text = wrap.querySelector("table")?.outerHTML || "";
   } else if (kind === "mermaid") {
-    text = wrap.querySelector("pre.mermaid")?.textContent || "";
+    text =
+      wrap.querySelector(".mermaid-block")?.dataset.code ||
+      wrap.dataset.code ||
+      wrap.querySelector("pre.mermaid")?.textContent ||
+      "";
   }
   if (!text) return;
   navigator.clipboard?.writeText(text);
@@ -685,20 +698,46 @@ async function renderMermaid(container) {
   const pres = container.querySelectorAll("pre.mermaid");
   const isDark = document.documentElement.getAttribute("data-theme") === "dark";
   if (typeof mermaid.initialize === "function") {
-    mermaid.initialize({ startOnLoad: false, theme: isDark ? "dark" : "default" });
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: isDark ? "dark" : "default",
+      suppressErrorRendering: true,
+    });
   }
   for (const pre of pres) {
+    const block = pre.closest(".mermaid-block");
+    block?.querySelectorAll(".mermaid-rendered, .mermaid-error").forEach((el) => el.remove());
+    pre.classList.remove("mermaid-error");
+
     try {
       const code = pre.textContent;
       const id = "mmd-" + Math.random().toString(36).slice(2, 8);
+      document.getElementById(`d${id}`)?.remove();
+      if (typeof mermaid.parse === "function") {
+        await mermaid.parse(code);
+      }
       const { svg } = await mermaid.render(id, code);
+      document.getElementById(`d${id}`)?.remove();
       const div = document.createElement("div");
       div.className = "mermaid-rendered";
       div.innerHTML = svg;
-      pre.replaceWith(div);
+      pre.hidden = true;
+      block ? pre.insertAdjacentElement("afterend", div) : pre.replaceWith(div);
     } catch (e) {
-      pre.classList.add("mermaid-error");
-      pre.textContent = "⚠ Mermaid error: " + e.message;
+      document.querySelectorAll('[id^="dmmd-"], [id^="dmermaid-"]').forEach((el) => {
+        if (el.parentElement === document.body) el.remove();
+      });
+      pre.hidden = true;
+      const err = document.createElement("div");
+      err.className = "mermaid-error";
+      const title = document.createElement("div");
+      title.className = "mermaid-error-title";
+      title.innerHTML = '<i class="ti ti-alert-triangle"></i><span>Mermaid syntax error</span>';
+      const message = document.createElement("pre");
+      message.className = "mermaid-error-message";
+      message.textContent = e?.message || "Unable to render this Mermaid diagram.";
+      err.append(title, message);
+      block ? pre.insertAdjacentElement("afterend", err) : pre.replaceWith(err);
     }
   }
 }
@@ -924,6 +963,57 @@ createApp({
     const cropW = ref(100);
     const cropH = ref(100);
     const cropPreset = ref("");
+    const cropWrapRef = ref(null);
+    const cropImgRef = ref(null);
+    const cropDisplayTick = ref(0);
+    const cropPresets = ["Free", "1:1", "4:3", "16:9"];
+
+    const showResize = computed({
+      get: () => showResizeModal.value,
+      set: (value) => {
+        showResizeModal.value = value;
+      },
+    });
+    const resizeTgt = computed(() => resizeTarget.value);
+    const resW = computed({
+      get: () => resizeW.value,
+      set: (value) => {
+        resizeW.value = value;
+      },
+    });
+    const resH = computed({
+      get: () => resizeH.value,
+      set: (value) => {
+        resizeH.value = value;
+      },
+    });
+    const resLock = computed({
+      get: () => resizeLock.value,
+      set: (value) => {
+        resizeLock.value = value;
+      },
+    });
+    const showCrop = computed({
+      get: () => showCropModal.value,
+      set: (value) => {
+        showCropModal.value = value;
+      },
+    });
+    const cropTgt = computed(() => cropTarget.value);
+    const cropDisplayRect = computed(() => {
+      cropDisplayTick.value;
+      const target = cropTarget.value;
+      const imgEl = cropImgRef.value;
+      if (!target || !imgEl?.clientWidth || !imgEl?.clientHeight) return null;
+      const scaleX = imgEl.clientWidth / target.width;
+      const scaleY = imgEl.clientHeight / target.height;
+      return {
+        left: `${imgEl.offsetLeft + cropX.value * scaleX}px`,
+        top: `${imgEl.offsetTop + cropY.value * scaleY}px`,
+        width: `${cropW.value * scaleX}px`,
+        height: `${cropH.value * scaleY}px`,
+      };
+    });
 
     // templates
     const userTemplates = ref([]);
@@ -1834,16 +1924,25 @@ createApp({
       if (!window.mermaid) return;
       try {
         const id = "mbld-" + Math.random().toString(36).slice(2, 8);
+        document.getElementById(`d${id}`)?.remove();
         if (typeof mermaid.initialize === "function") {
           mermaid.initialize({
             startOnLoad: false,
             theme: getPreviewTheme(),
+            suppressErrorRendering: true,
           });
         }
+        if (typeof mermaid.parse === "function") {
+          await mermaid.parse(mermaidCode.value);
+        }
         const { svg } = await mermaid.render(id, mermaidCode.value);
+        document.getElementById(`d${id}`)?.remove();
         mermaidPrev.value = svg;
         mermaidError.value = "";
       } catch (e) {
+        document.querySelectorAll('[id^="dmbld-"], [id^="dmmd-"], [id^="dmermaid-"]').forEach((el) => {
+          if (el.parentElement === document.body) el.remove();
+        });
         mermaidError.value = e.message;
         mermaidPrev.value = "";
       }
@@ -2043,6 +2142,43 @@ createApp({
       showImgManager.value = true;
     }
 
+    function syncImagePath(img) {
+      if (!img?.path || !img.data) return;
+      imagePathMap.value = {
+        ...imagePathMap.value,
+        [img.path]: img.data,
+        [`./${img.path}`]: img.data,
+      };
+    }
+
+    function insertImageMarkdown(img) {
+      if (!img) return;
+      const alt = (img.name || "Image").replace(/[\[\]\n\r]/g, " ").trim() || "Image";
+      insertText(`\n\n![${alt}](${img.path})\n\n`);
+      syncImagePath(img);
+      scheduleRender();
+    }
+
+    function loadImageData(src) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error("Could not load image"));
+        img.src = src;
+      });
+    }
+
+    function updateImageData(img, data, width, height, mime = "image/png") {
+      if (!img) return;
+      img.data = data;
+      img.dataUrl = data;
+      img.mime = mime;
+      img.width = width;
+      img.height = height;
+      syncImagePath(img);
+      scheduleRender();
+    }
+
     function processImageFiles(files) {
       for (const file of files) {
         if (!file.type?.startsWith("image/")) continue;
@@ -2051,20 +2187,22 @@ createApp({
           const img = new Image();
           img.onload = () => {
             const safeName = file.name.replace(/[^\w.-]+/g, "-");
-            const path = `images/${Date.now()}-${safeName}`;
-            images.value.push({
+            const id = genId();
+            const path = `images/${Date.now()}-${id}-${safeName}`;
+            const entry = {
               id: genId(),
               name: file.name,
               path,
+              mime: file.type || "image/png",
               dataUrl: ev.target.result,
               data: ev.target.result,
               width: img.naturalWidth,
               height: img.naturalHeight,
-            });
-            imagePathMap.value = {
-              ...imagePathMap.value,
-              [path]: ev.target.result,
             };
+            images.value.push(entry);
+            if (!selectedImgs.value.includes(entry.id)) selectedImgs.value.push(entry.id);
+            syncImagePath(entry);
+            notify(`Uploaded ${file.name}`, "success", 1400);
           };
           img.src = ev.target.result;
         };
@@ -2090,17 +2228,27 @@ createApp({
     function insertSelectedImgs() {
       for (const imgId of selectedImgs.value) {
         const img = images.value.find((entry) => entry.id === imgId);
-        if (img) insertText(`![${img.name}](${img.path})\n`);
+        if (img) insertImageMarkdown(img);
       }
       selectedImgs.value = [];
       showImgManager.value = false;
     }
 
     function deleteSelectedImgs() {
+      const deleted = images.value.filter((i) => selectedImgs.value.includes(i.id));
       images.value = images.value.filter(
         (i) => !selectedImgs.value.includes(i.id),
       );
+      if (deleted.length) {
+        const nextMap = { ...imagePathMap.value };
+        deleted.forEach((img) => {
+          delete nextMap[img.path];
+          delete nextMap[`./${img.path}`];
+        });
+        imagePathMap.value = nextMap;
+      }
       selectedImgs.value = [];
+      scheduleRender();
     }
 
     function triggerImgUpload() {
@@ -2123,7 +2271,7 @@ createApp({
 
     function insertOneImage(img) {
       if (!img) return;
-      insertText(`![${img.name}](${img.path})\n`);
+      insertImageMarkdown(img);
     }
 
     function openResize(img) {
@@ -2132,15 +2280,123 @@ createApp({
       resizeH.value = img.height;
       showResizeModal.value = true;
     }
-    function applyResize() {
-      /* canvas-based resize — same as original */ showResizeModal.value = false;
+    function onRW() {
+      const img = resizeTarget.value;
+      if (!resizeLock.value || !img?.width || !img?.height) return;
+      resizeH.value = Math.max(1, Math.round((Number(resizeW.value) * img.height) / img.width));
+    }
+    function onRH() {
+      const img = resizeTarget.value;
+      if (!resizeLock.value || !img?.width || !img?.height) return;
+      resizeW.value = Math.max(1, Math.round((Number(resizeH.value) * img.width) / img.height));
+    }
+    async function applyResize() {
+      const target = resizeTarget.value;
+      if (!target) return;
+      try {
+        const source = await loadImageData(target.data);
+        const width = Math.max(1, Math.round(Number(resizeW.value) || target.width));
+        const height = Math.max(1, Math.round(Number(resizeH.value) || target.height));
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(source, 0, 0, width, height);
+        const mime = target.mime === "image/jpeg" || target.mime === "image/webp" ? target.mime : "image/png";
+        updateImageData(target, canvas.toDataURL(mime, resQ.value), width, height, mime);
+        showResizeModal.value = false;
+        notify("Image resized", "success", 1400);
+      } catch (e) {
+        notify(e.message || "Resize failed", "warn");
+      }
     }
     function openCrop(img) {
       cropTarget.value = img;
+      cropX.value = 0;
+      cropY.value = 0;
+      cropW.value = img.width;
+      cropH.value = img.height;
+      cropPreset.value = "Free";
       showCropModal.value = true;
+      nextTick(() => initCropDisplay());
     }
-    function applyCrop() {
-      showCropModal.value = false;
+    function initCropDisplay() {
+      cropDisplayTick.value += 1;
+    }
+    function cropPointFromEvent(event) {
+      const target = cropTarget.value;
+      const imgEl = cropImgRef.value;
+      if (!target || !imgEl) return { x: 0, y: 0 };
+      const rect = imgEl.getBoundingClientRect();
+      const x = Math.max(0, Math.min(rect.width, event.clientX - rect.left));
+      const y = Math.max(0, Math.min(rect.height, event.clientY - rect.top));
+      return {
+        x: Math.round((x / rect.width) * target.width),
+        y: Math.round((y / rect.height) * target.height),
+      };
+    }
+    function onCropMouseDown(event) {
+      if (!cropTarget.value) return;
+      const start = cropPointFromEvent(event);
+      cropX.value = start.x;
+      cropY.value = start.y;
+      cropW.value = 1;
+      cropH.value = 1;
+      const move = (moveEvent) => {
+        const point = cropPointFromEvent(moveEvent);
+        cropX.value = Math.min(start.x, point.x);
+        cropY.value = Math.min(start.y, point.y);
+        cropW.value = Math.max(1, Math.abs(point.x - start.x));
+        cropH.value = Math.max(1, Math.abs(point.y - start.y));
+        cropDisplayTick.value += 1;
+      };
+      const up = () => {
+        window.removeEventListener("mousemove", move);
+        window.removeEventListener("mouseup", up);
+      };
+      window.addEventListener("mousemove", move);
+      window.addEventListener("mouseup", up);
+    }
+    function applyCropPreset(preset) {
+      const target = cropTarget.value;
+      if (!target) return;
+      cropPreset.value = preset;
+      if (preset === "Free") return;
+      const [rw, rh] = preset.split(":").map(Number);
+      if (!rw || !rh) return;
+      let width = target.width;
+      let height = Math.round(width * (rh / rw));
+      if (height > target.height) {
+        height = target.height;
+        width = Math.round(height * (rw / rh));
+      }
+      cropW.value = width;
+      cropH.value = height;
+      cropX.value = Math.round((target.width - width) / 2);
+      cropY.value = Math.round((target.height - height) / 2);
+      cropDisplayTick.value += 1;
+    }
+    async function applyCrop() {
+      const target = cropTarget.value;
+      if (!target) return;
+      try {
+        const source = await loadImageData(target.data);
+        const sx = Math.max(0, Math.round(cropX.value));
+        const sy = Math.max(0, Math.round(cropY.value));
+        const sw = Math.max(1, Math.min(target.width - sx, Math.round(cropW.value)));
+        const sh = Math.max(1, Math.min(target.height - sy, Math.round(cropH.value)));
+        const canvas = document.createElement("canvas");
+        canvas.width = sw;
+        canvas.height = sh;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(source, sx, sy, sw, sh, 0, 0, sw, sh);
+        const mime = target.mime === "image/jpeg" || target.mime === "image/webp" ? target.mime : "image/png";
+        updateImageData(target, canvas.toDataURL(mime, resQ.value), sw, sh, mime);
+        showCropModal.value = false;
+        notify("Image cropped", "success", 1400);
+      } catch (e) {
+        notify(e.message || "Crop failed", "warn");
+      }
     }
 
     // ── Templates ─────────────────────────────────────────────────────────────
@@ -2407,9 +2663,11 @@ ${body}
       resizing = true;
       const startX = e.clientX;
       const startW = editorWidth.value;
+      const mainW = document.getElementById("main")?.clientWidth || window.innerWidth;
       const onMove = (ev) => {
         if (!resizing) return;
-        editorWidth.value = Math.max(180, startW + (ev.clientX - startX));
+        const maxW = Math.max(220, mainW - 240);
+        editorWidth.value = Math.min(maxW, Math.max(220, startW + (ev.clientX - startX)));
       };
       const onUp = () => {
         resizing = false;
@@ -2489,6 +2747,7 @@ ${body}
         mermaid.initialize({
           startOnLoad: false,
           theme: darkMode.value ? "dark" : "default",
+          suppressErrorRendering: true,
         });
       }
 
@@ -2667,18 +2926,29 @@ ${body}
       imgFileInput,
       imgUploadRef: imgFileInput,
       showResizeModal,
+      showResize,
       resizeTarget,
+      resizeTgt,
       resizeW,
+      resW,
       resizeH,
+      resH,
       resizeLock,
+      resLock,
       resQ,
       showCropModal,
+      showCrop,
       cropTarget,
+      cropTgt,
       cropX,
       cropY,
       cropW,
       cropH,
       cropPreset,
+      cropPresets,
+      cropWrapRef,
+      cropImgRef,
+      cropDisplayRect,
       userTemplates,
       showSaveTplModal,
       newTplName,
@@ -2786,8 +3056,13 @@ ${body}
       deleteSelected,
       insertOneImage,
       openResize,
+      onRW,
+      onRH,
       applyResize,
       openCrop,
+      initCropDisplay,
+      onCropMouseDown,
+      applyCropPreset,
       applyCrop,
       openTemplates,
       loadTemplate,

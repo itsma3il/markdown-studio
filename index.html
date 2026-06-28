@@ -1755,7 +1755,7 @@
 
       <!-- FIND/REPLACE -->
       <div class="modal-overlay" v-if="showFR" @click.self="showFR=false">
-        <div class="modal-box" style="width: 440px">
+        <div class="modal-box find-replace-modal">
           <div class="modal-header">
             <div class="modal-title">
               <i class="ti ti-replace"></i>Find &amp; Replace
@@ -1806,7 +1806,7 @@
             <label
               ><input
                 type="checkbox"
-                v-model="frWhole"
+                v-model="frWord"
                 style="width: auto; margin-right: 4px"
               />Whole word</label
             >
