@@ -748,14 +748,15 @@ async function postProcessPreviewContainer(
   alignments,
   imageMap,
   onResize,
+  onStyleChange,
 ) {
   if (!container) return;
   await renderMermaid(container);
   resolvePreviewImages(container, imageMap);
-  enhancePreviewBlocks(container, sizes, alignments, onResize);
+  enhancePreviewBlocks(container, sizes, alignments, onResize, onStyleChange);
 }
 
-function enhancePreviewBlocks(container, sizes, alignments, onResize) {
+function enhancePreviewBlocks(container, sizes, alignments, onResize, onStyleChange) {
   const targets = [];
   container.querySelectorAll(".mermaid-block, table, img").forEach((el) => {
     if (el.closest(".preview-resize-wrap")) return;
@@ -817,6 +818,7 @@ function enhancePreviewBlocks(container, sizes, alignments, onResize) {
       if (alignments) alignments[key] = next;
       applyPreviewAlignment(wrap, next, kind);
       setAlignButtonIcon(align, next);
+      onStyleChange?.();
     });
 
     const toolbar = document.createElement("div");
@@ -856,6 +858,7 @@ createApp({
     // view
     const viewMode = ref("split");
     const sidebarOpen = ref(true);
+    const topbarOpen = ref(false);
     const darkMode = ref(false);
     const focusMode = ref(false);
     const wordWrap = ref(true);
@@ -874,6 +877,7 @@ createApp({
     const showSettings = ref(false);
     const showHistory = ref(false);
     const syncScrollEnabled = ref(false);
+    const sidebarTemplatesOpen = ref(true);
 
     // Find & replace
     const frFind = ref("");
@@ -899,6 +903,12 @@ createApp({
     const mermaidPrev = ref("");
     const mermaidError = ref("");
     const mermaidTpl = ref("flowchart");
+    const mermaidDiagramType = computed({
+      get: () => mermaidTpl.value,
+      set: (value) => {
+        mermaidTpl.value = value;
+      },
+    });
     const mermaidRendered = computed(() => mermaidPrev.value);
 
     // block organizer
@@ -935,9 +945,13 @@ createApp({
     const previewScaleFactor = ref(1);
     const previewBlockSizes = ref({});
     const previewBlockAlignments = ref({});
+    const mediaBlockBorder = ref(false);
+    const mediaBlockBgMode = ref("transparent");
+    const mediaBlockBgColor = ref("#ffffff");
     const imagePathMap = ref({});
 
     // export
+    const showPdfSettings = ref(false);
     const exportPaperSize = ref("A4");
     const exportOrientation = ref("portrait");
     const exportMargins = ref("normal");
@@ -1018,9 +1032,52 @@ createApp({
     // templates
     const userTemplates = ref([]);
     const showSaveTplModal = ref(false);
+    const tplTab = ref("builtin");
     const newTplName = ref("");
     const newTplDesc = ref("");
     const newTplIncContent = ref(false);
+    const showSaveTpl = computed({
+      get: () => showSaveTplModal.value,
+      set: (value) => {
+        showSaveTplModal.value = value;
+      },
+    });
+    const tplInclude = computed({
+      get: () => newTplIncContent.value,
+      set: (value) => {
+        newTplIncContent.value = value;
+      },
+    });
+    const pdfPaperSize = computed({
+      get: () => exportPaperSize.value,
+      set: (value) => {
+        exportPaperSize.value = value;
+      },
+    });
+    const pdfOrientation = computed({
+      get: () => exportOrientation.value,
+      set: (value) => {
+        exportOrientation.value = value;
+      },
+    });
+    const pdfMargins = computed({
+      get: () => exportMargins.value,
+      set: (value) => {
+        exportMargins.value = value;
+      },
+    });
+    const pdfScale = computed({
+      get: () => exportScale.value,
+      set: (value) => {
+        exportScale.value = value;
+      },
+    });
+    const pdfBg = computed({
+      get: () => exportBgGraphics.value,
+      set: (value) => {
+        exportBgGraphics.value = value;
+      },
+    });
 
     // notifications
     const notifications = ref([]);
@@ -1088,6 +1145,7 @@ createApp({
     // autosave status
     const autosaveStatus = ref("saved"); // 'saved' | 'saving' | 'unsaved'
     const autosaveDelay = ref(2000);
+    let syncingEditorProgrammatically = false;
 
     // snapshots panel
     const snapshots = ref([]);
@@ -1255,6 +1313,11 @@ createApp({
         ? "color-mix(in srgb, var(--acc) 7%, transparent)"
         : "transparent";
       s["--media-scale"] = String(previewScaleFactor.value);
+      s["--media-block-border"] = mediaBlockBorder.value
+        ? "1px solid var(--border2)"
+        : "1px solid transparent";
+      s["--media-block-bg"] =
+        mediaBlockBgMode.value === "color" ? mediaBlockBgColor.value : "transparent";
       return s;
     });
 
@@ -1288,6 +1351,112 @@ createApp({
       setTimeout(() => {
         notifications.value = notifications.value.filter((n) => n.id !== id);
       }, duration);
+    }
+
+    function createDefaultFileStyle() {
+      return {
+        version: 1,
+        renderTheme: "default",
+        customFont: "",
+        cFontSize: 17,
+        cLineH: 1.7,
+        cParaGap: 0.8,
+        cHeadFont: "",
+        cH1: 2.2,
+        cH2: 1.7,
+        cWidth: 780,
+        cPadH: 40,
+        cPadV: 40,
+        cColorText: "",
+        cColorHead: "",
+        cColorLink: "",
+        cColorBg: "",
+        previewTableLayout: "full",
+        previewTableStriped: true,
+        previewTableCompact: false,
+        previewTableFontScale: 1,
+        previewScaleScope: "all",
+        previewScaleFactor: 1,
+        previewBlockSizes: {},
+        previewBlockAlignments: {},
+        mediaBlockBorder: false,
+        mediaBlockBgMode: "transparent",
+        mediaBlockBgColor: "#ffffff",
+      };
+    }
+
+    function captureFileStyle() {
+      return {
+        version: 1,
+        renderTheme: renderTheme.value,
+        customFont: customFont.value,
+        cFontSize: cFontSize.value,
+        cLineH: cLineH.value,
+        cParaGap: cParaGap.value,
+        cHeadFont: cHeadFont.value,
+        cH1: cH1.value,
+        cH2: cH2.value,
+        cWidth: cWidth.value,
+        cPadH: cPadH.value,
+        cPadV: cPadV.value,
+        cColorText: cColorText.value,
+        cColorHead: cColorHead.value,
+        cColorLink: cColorLink.value,
+        cColorBg: cColorBg.value,
+        previewTableLayout: previewTableLayout.value,
+        previewTableStriped: previewTableStriped.value,
+        previewTableCompact: previewTableCompact.value,
+        previewTableFontScale: previewTableFontScale.value,
+        previewScaleScope: previewScaleScope.value,
+        previewScaleFactor: previewScaleFactor.value,
+        previewBlockSizes: { ...previewBlockSizes.value },
+        previewBlockAlignments: { ...previewBlockAlignments.value },
+        mediaBlockBorder: mediaBlockBorder.value,
+        mediaBlockBgMode: mediaBlockBgMode.value,
+        mediaBlockBgColor: mediaBlockBgColor.value,
+      };
+    }
+
+    let applyingFileStyle = false;
+    function applyFileStyle(style) {
+      const s = { ...createDefaultFileStyle(), ...(style || {}) };
+      applyingFileStyle = true;
+      renderTheme.value = s.renderTheme;
+      customFont.value = s.customFont;
+      cFontSize.value = s.cFontSize;
+      cLineH.value = s.cLineH;
+      cParaGap.value = s.cParaGap;
+      cHeadFont.value = s.cHeadFont;
+      cH1.value = s.cH1;
+      cH2.value = s.cH2;
+      cWidth.value = s.cWidth;
+      cPadH.value = s.cPadH;
+      cPadV.value = s.cPadV;
+      cColorText.value = s.cColorText;
+      cColorHead.value = s.cColorHead;
+      cColorLink.value = s.cColorLink;
+      cColorBg.value = s.cColorBg;
+      previewTableLayout.value = s.previewTableLayout;
+      previewTableStriped.value = s.previewTableStriped;
+      previewTableCompact.value = s.previewTableCompact;
+      previewTableFontScale.value = s.previewTableFontScale;
+      previewScaleScope.value = s.previewScaleScope;
+      previewScaleFactor.value = s.previewScaleFactor;
+      previewBlockSizes.value = { ...(s.previewBlockSizes || {}) };
+      previewBlockAlignments.value = { ...(s.previewBlockAlignments || {}) };
+      mediaBlockBorder.value = Boolean(s.mediaBlockBorder);
+      mediaBlockBgMode.value = s.mediaBlockBgMode || "transparent";
+      mediaBlockBgColor.value = s.mediaBlockBgColor || "#ffffff";
+      nextTick(() => {
+        applyingFileStyle = false;
+        scheduleRender();
+      });
+    }
+
+    function touchActiveFileStyle() {
+      if (!activeFile.value || applyingFileStyle) return;
+      activeFile.value.style = captureFileStyle();
+      markUnsaved();
     }
 
     function markUnsaved() {
@@ -1343,7 +1512,12 @@ createApp({
 
     /** Push content into editor (e.g. after file switch) */
     function syncToEditor(text) {
-      if (editorInstance) editorInstance.setValue(text || "");
+      if (!editorInstance) return;
+      syncingEditorProgrammatically = true;
+      editorInstance.setValue(text || "");
+      queueMicrotask(() => {
+        syncingEditorProgrammatically = false;
+      });
     }
 
     // ── file management ──────────────────────────────────────────────────────
@@ -1356,6 +1530,7 @@ createApp({
           id: genId(),
           name: "untitled.md",
           content: DEFAULT_CONTENT,
+          style: createDefaultFileStyle(),
           createdAt: Date.now(),
           updatedAt: Date.now(),
         };
@@ -1373,6 +1548,7 @@ createApp({
     }
 
     async function switchFile(id) {
+      if (!id || id === activeFileId.value) return;
       // Flush any pending autosave for current file
       if (activeFileId.value) {
         cancelAutosave();
@@ -1390,8 +1566,12 @@ createApp({
         if (idx >= 0) files.value[idx] = file;
         else files.value.push(file);
         syncToEditor(file.content);
+        applyFileStyle(file.style);
       }
       editingBlockIdx.value = -1;
+      if (window.innerWidth <= 960) sidebarOpen.value = false;
+      unsaved.value = false;
+      autosaveStatus.value = "saved";
     }
 
     async function newFile() {
@@ -1399,6 +1579,7 @@ createApp({
         id: genId(),
         name: "untitled.md",
         content: "",
+        style: createDefaultFileStyle(),
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
@@ -1425,6 +1606,7 @@ createApp({
       await saveFile({
         ...activeFile.value,
         content: editorInstance?.getValue() || currentContent.value,
+        style: captureFileStyle(),
       });
       unsaved.value = false;
       autosaveStatus.value = "saved";
@@ -1458,6 +1640,7 @@ createApp({
         id: genId(),
         name: file.name,
         content: text,
+        style: createDefaultFileStyle(),
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
@@ -1574,6 +1757,7 @@ createApp({
                 previewBlockAlignments.value,
                 imagePathMap.value,
                 beginPreviewResize,
+                touchActiveFileStyle,
               ),
             ),
           ).then(() => {
@@ -1815,6 +1999,7 @@ createApp({
           ...previewBlockSizes.value,
           [key]: wrap.style.width,
         };
+        touchActiveFileStyle();
       };
 
       window.addEventListener("pointermove", move);
@@ -1954,7 +2139,12 @@ createApp({
 
     function loadMermaidTpl(tpl) {
       mermaidCode.value = tpl.code;
+      mermaidTpl.value = tpl.id;
       previewMermaid();
+    }
+
+    function loadMermaidTemplate(tpl) {
+      loadMermaidTpl(tpl);
     }
 
     function insertMermaidToEditor() {
@@ -2408,7 +2598,9 @@ createApp({
       if (confirm("Replace current content with template?")) {
         syncToEditor(t.content);
         syncFromEditor();
-        if (t.theme) renderTheme.value = t.theme;
+        if (t.style) applyFileStyle(t.style);
+        else if (t.theme) renderTheme.value = t.theme;
+        nextTick(touchActiveFileStyle);
         showTemplates.value = false;
       }
     }
@@ -2434,12 +2626,25 @@ createApp({
         name: newTplName.value.trim(),
         desc: newTplDesc.value.trim(),
         theme: renderTheme.value,
+        style: captureFileStyle(),
         content: newTplIncContent.value
           ? editorInstance?.getValue() || currentContent.value
           : "",
       });
       showSaveTplModal.value = false;
       notify("Template saved", "success");
+    }
+
+    function saveAsUserTemplate() {
+      saveNewTemplate();
+    }
+
+    function loadUserTemplate(t) {
+      loadTemplate(t);
+    }
+
+    function deleteUserTpl(id) {
+      userTemplates.value = userTemplates.value.filter((tpl) => tpl.id !== id);
     }
 
     // ── Export ────────────────────────────────────────────────────────────────
@@ -2624,6 +2829,14 @@ ${body}
       return exportHtml();
     }
 
+    function exportTxt() {
+      return exportPlain();
+    }
+
+    function exportJSON() {
+      return exportJson();
+    }
+
     async function startRenameById(id) {
       if (id) await switchFile(id);
       startRename();
@@ -2690,23 +2903,8 @@ ${body}
     // ── style panel ───────────────────────────────────────────────────────────
 
     function resetStyle() {
-      customFont.value = "";
-      cFontSize.value = 17;
-      cLineH.value = 1.7;
-      cParaGap.value = 0.8;
-      cHeadFont.value = "";
-      cH1.value = 2.2;
-      cH2.value = 1.7;
-      cWidth.value = 780;
-      cPadH.value = 40;
-      cPadV.value = 40;
-      cColorText.value = "";
-      cColorHead.value = "";
-      cColorLink.value = "";
-      cColorBg.value = "";
-      previewTableLayout.value = "full";
-      previewScaleScope.value = "all";
-      previewScaleFactor.value = 1;
+      applyFileStyle(createDefaultFileStyle());
+      nextTick(touchActiveFileStyle);
     }
 
     // ── watches ──────────────────────────────────────────────────────────────
@@ -2732,8 +2930,45 @@ ${body}
     watch(previewScaleScope, (v) => setSetting("previewScaleScope", v));
     watch(previewScaleFactor, (v) => setSetting("previewScaleFactor", v));
 
+    watch(
+      [
+        renderTheme,
+        customFont,
+        cFontSize,
+        cLineH,
+        cParaGap,
+        cHeadFont,
+        cH1,
+        cH2,
+        cWidth,
+        cPadH,
+        cPadV,
+        cColorText,
+        cColorHead,
+        cColorLink,
+        cColorBg,
+        previewTableLayout,
+        previewTableStriped,
+        previewTableCompact,
+        previewTableFontScale,
+        previewScaleScope,
+        previewScaleFactor,
+        mediaBlockBorder,
+        mediaBlockBgMode,
+        mediaBlockBgColor,
+      ],
+      touchActiveFileStyle,
+    );
+
     watch(activePanel, (v) => {
       if (v === "organizer") parseBlocks();
+    });
+
+    let mermaidPreviewTimer = null;
+    watch(mermaidCode, () => {
+      if (!showMermaid.value) return;
+      clearTimeout(mermaidPreviewTimer);
+      mermaidPreviewTimer = setTimeout(() => previewMermaid(), 180);
     });
 
     // ── onMounted ────────────────────────────────────────────────────────────
@@ -2796,6 +3031,7 @@ ${body}
           fontSize: editorFontSize.value,
           lineHeight: editorLineHeight.value,
           onChange(text) {
+            if (syncingEditorProgrammatically) return;
             if (activeFile.value) {
               activeFile.value.content = text;
               markUnsaved();
@@ -2854,6 +3090,7 @@ ${body}
       autosaveStatus,
       viewMode,
       sidebarOpen,
+      topbarOpen,
       darkMode,
       focusMode,
       wordWrap,
@@ -2870,6 +3107,7 @@ ${body}
       showSettings,
       showHistory,
       syncScrollEnabled,
+      sidebarTemplatesOpen,
       previewScroller,
       frFindRef,
       renamingFile,
@@ -2884,6 +3122,7 @@ ${body}
       mermaidRendered,
       mermaidError,
       mermaidTpl,
+      mermaidDiagramType,
       activePanel,
       blocks,
       editingBlockIdx,
@@ -2914,11 +3153,20 @@ ${body}
       previewScaleFactor,
       previewBlockSizes,
       previewBlockAlignments,
+      mediaBlockBorder,
+      mediaBlockBgMode,
+      mediaBlockBgColor,
+      showPdfSettings,
       exportPaperSize,
+      pdfPaperSize,
       exportOrientation,
+      pdfOrientation,
       exportMargins,
+      pdfMargins,
       exportScale,
+      pdfScale,
       exportBgGraphics,
+      pdfBg,
       exportTitle,
       exportAuthor,
       images,
@@ -2951,9 +3199,12 @@ ${body}
       cropDisplayRect,
       userTemplates,
       showSaveTplModal,
+      showSaveTpl,
+      tplTab,
       newTplName,
       newTplDesc,
       newTplIncContent,
+      tplInclude,
       notifications,
       ctxMenu,
       editorCtxOpen,
@@ -3024,7 +3275,9 @@ ${body}
       insertLatexToEditor,
       openMermaidBuilder,
       previewMermaid,
+      renderMermaidPreview,
       loadMermaidTpl,
+      loadMermaidTemplate,
       insertMermaidToEditor,
       parseBlocks,
       blocksToContent,
@@ -3069,6 +3322,9 @@ ${body}
       openSaveTplModal,
       saveAsTheme,
       saveNewTemplate,
+      saveAsUserTemplate,
+      loadUserTemplate,
+      deleteUserTpl,
       openExport,
       exportMarkdown,
       exportHtml,
@@ -3088,6 +3344,8 @@ ${body}
       copyText,
       exportPDF,
       exportHTML,
+      exportTxt,
+      exportJSON,
       startRenameById,
       duplicateFile,
       exportSingle,

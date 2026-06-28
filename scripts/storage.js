@@ -77,6 +77,11 @@ function getAll(store) {
   });
 }
 
+function toPlainData(value) {
+  if (value == null) return value;
+  return JSON.parse(JSON.stringify(value));
+}
+
 // ─── FILES ─────────────────────────────────────────────────────────────────
 
 export async function getAllFiles() {
@@ -91,9 +96,10 @@ export async function getFile(id) {
 
 export async function saveFile(file) {
   await openDB();
-  file.updatedAt = Date.now();
-  if (!file.createdAt) file.createdAt = file.updatedAt;
-  return promisify(tx('files', 'readwrite').put(file));
+  const stored = toPlainData(file);
+  stored.updatedAt = Date.now();
+  if (!stored.createdAt) stored.createdAt = stored.updatedAt;
+  return promisify(tx('files', 'readwrite').put(stored));
 }
 
 export async function deleteFile(id) {
@@ -204,7 +210,7 @@ export async function getSetting(key, defaultValue = null) {
 
 export async function setSetting(key, value) {
   await openDB();
-  return promisify(tx('settings', 'readwrite').put({ key, value }));
+  return promisify(tx('settings', 'readwrite').put({ key, value: toPlainData(value) }));
 }
 
 export async function getAllSettings() {

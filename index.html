@@ -60,25 +60,11 @@
   </head>
   <body>
     <div id="vue-root">
-      <div id="topbar">
+      <div id="topbar" :class="{expanded:topbarOpen}">
         <div class="logo">
           <div class="logo-mark"><i class="ti ti-markdown"></i></div>
           <span class="logo-text">Studio</span>
         </div>
-        <div class="tb-sep"></div>
-        <button class="tb-btn" @click="newFile">
-          <i class="ti ti-file-plus"></i>New
-        </button>
-        <button class="tb-btn" @click="triggerMdUpload">
-          <i class="ti ti-folder-open"></i>Open
-        </button>
-        <button
-          class="tb-btn"
-          :class="{active:unsaved,'unsaved-indicator':unsaved}"
-          @click="saveFile"
-        >
-          <i class="ti ti-device-floppy"></i>{{unsaved?'Save*':'Saved'}}
-        </button>
         <input
           ref="mdFileInput"
           type="file"
@@ -86,131 +72,156 @@
           style="display: none"
           @change="onMdFileUpload"
         />
-        <div class="tb-sep"></div>
-        <span v-if="!renamingFile" class="fname-badge" @dblclick="startRename"
-          >{{activeFile?.name||'untitled.md'}}</span
-        >
-        <input
-          v-else
-          class="rename-input"
-          ref="renameInputRef"
-          v-model="renameVal"
-          @blur="finishRename"
-          @keyup.enter="finishRename"
-          @keyup.escape="renamingFile=false"
-        />
-        <div class="tb-sep"></div>
         <button
-          class="tb-icon"
-          :class="{active:viewMode==='split'}"
-          @click="viewMode='split'"
-          title="Split"
-        >
-          <i class="ti ti-layout-columns"></i>
+            class="tb-icon"
+            :class="{active:sidebarOpen}"
+            @click="sidebarOpen=!sidebarOpen"
+            title="Sidebar"
+          >
+            <i class="ti ti-layout-sidebar"></i>
         </button>
         <button
-          class="tb-icon"
-          :class="{active:viewMode==='editor'}"
-          @click="viewMode='editor'"
-          title="Editor only"
+          class="tb-icon topbar-toggle"
+          :class="{active:topbarOpen}"
+          @click="topbarOpen=!topbarOpen"
+          title="Toolbar"
         >
-          <i class="ti ti-code"></i>
+          <i :class="topbarOpen?'ti ti-chevron-up':'ti ti-menu-2'"></i>
         </button>
-        <button
-          class="tb-icon"
-          :class="{active:viewMode==='preview'}"
-          @click="viewMode='preview'"
-          title="Preview only"
-        >
-          <i class="ti ti-eye"></i>
-        </button>
-        <button
-          class="tb-icon"
-          :class="{active:syncScrollEnabled}"
-          @click="toggleSyncScroll"
-          title="Sync scroll"
-        >
-          <i class="ti ti-arrows-left-right"></i>
-        </button>
-        <div class="tb-sep"></div>
-        <select class="tb-theme-sel" v-model="renderTheme">
+        <div class="tb-group tb-group-file">
+          <button
+              class="tb-btn tb-primary"
+              :class="{active:unsaved,'unsaved-indicator':unsaved}"
+              @click="saveFile"
+              title="Save"
+            >
+              <i class="ti ti-device-floppy"></i>{{unsaved?'Save*':'Saved'}}
+          </button>
+          <button class="tb-btn" @click="openHistory" title="Version History">
+              <i class="ti ti-history"></i>History
+          </button>
+          
+          <div class="tb-group-more">
+            <button class="tb-btn " @click="newFile" title="New file">
+              <i class="ti ti-file-plus"></i>New
+            </button>
+            <button class="tb-btn" @click="triggerMdUpload" title="Open Markdown">
+              <i class="ti ti-folder-open"></i>Open
+            </button>
+            <button class="tb-btn" @click="openExport" title="Export">
+              <i class="ti ti-download"></i>Export
+            </button>
+          </div>
+        </div>
+        <div class="tb-file-chip">
+          <span v-if="!renamingFile" class="fname-badge" @dblclick="startRename"
+            >{{activeFile?.name||'untitled.md'}}</span
+          >
+          <input
+            v-else
+            class="rename-input"
+            ref="renameInputRef"
+            v-model="renameVal"
+            @blur="finishRename"
+            @keyup.enter="finishRename"
+            @keyup.escape="renamingFile=false"
+          />
+        </div>
+        <select class="tb-theme-sel" v-model="renderTheme" title="File style theme">
           <option v-for="t in renderThemes" :key="t.id" :value="t.id">
             {{t.name}}
           </option>
         </select>
+        <div class="tb-group">
+          <button
+            class="tb-icon"
+            :class="{active:viewMode==='split'}"
+            @click="viewMode='split'"
+            title="Split view"
+          >
+            <i class="ti ti-layout-columns"></i>
+          </button>
+          <div class="tb-group-more">
+            <button
+              class="tb-icon"
+              :class="{active:viewMode==='editor'}"
+              @click="viewMode='editor'"
+              title="Editor only"
+            >
+              <i class="ti ti-code"></i>
+            </button>
+            <button
+              class="tb-icon"
+              :class="{active:viewMode==='preview'}"
+              @click="viewMode='preview'"
+              title="Preview only"
+            >
+              <i class="ti ti-eye"></i>
+            </button>
+            <button
+              class="tb-icon"
+              :class="{active:syncScrollEnabled}"
+              @click="toggleSyncScroll"
+              title="Sync scroll"
+            >
+              <i class="ti ti-arrows-left-right"></i>
+            </button>
+          </div>
+        </div>
+        
         <div class="tb-right">
+          <div class="tb-group">
+            <button
+              class="tb-btn tb-accent"
+              @click="openMermaidBuilder"
+              title="Mermaid Diagram Builder"
+            >
+              <i class="ti ti-topology-star"></i>Diagram
+            </button>
+            <div class="tb-group-more">
+              <button class="tb-btn tb-accent" @click="openLatexBuilder" title="LaTeX Math Helper">
+                <i class="ti ti-math-function"></i>Latex
+              </button>
+              <button class="tb-icon" @click="openImgManager" title="Images">
+                <i class="ti ti-photo"></i>
+              </button>
+              <button class="tb-icon" @click="openTemplates" title="Templates">
+                <i class="ti ti-layout-grid"></i>
+              </button>
+              <button
+                class="tb-icon"
+                :class="{active:activePanel==='organizer'}"
+                @click="activePanel=activePanel==='organizer'?'editor':'organizer'"
+                title="Block Organizer"
+              >
+                <i class="ti ti-layout-rows"></i>
+              </button>
+            </div>
+          </div>
+          <div class="tb-group">
+            <button class="tb-btn" @click="openSettings" title="Settings">
+              <i class="ti ti-settings"></i>Settings
+            </button>
+            <div class="tb-group-more">
+              
+              <button class="tb-icon" @click="toggleDark" title="Theme mode">
+                <i :class="darkMode?'ti ti-sun':'ti ti-moon'"></i>
+              </button>
+               <button class="tb-icon" @click="showShortcuts=true" title="Shortcuts">
+                <i class="ti ti-keyboard"></i>
+              </button>
+              <button class="tb-icon" :class="{active:focusMode}" @click="focusMode=true" title="Focus">
+                <i class="ti ti-maximize"></i>
+              </button>
+            </div>
+          </div>
           <button
-            class="tb-btn"
-            @click="openLatexBuilder"
-            title="LaTeX Math Helper (Ctrl+M)"
-            style="color: var(--acc)"
-          >
-            <i class="ti ti-math-function"></i>LaTeX
-          </button>
-          <button
-            class="tb-btn"
-            @click="openMermaidBuilder"
-            title="Mermaid Diagram Builder (Ctrl+G)"
-            style="color: var(--acc)"
-          >
-            <i class="ti ti-topology-star"></i>Mermaid
-          </button>
-          <button
-            class="tb-btn"
-            :class="{active:activePanel==='organizer'}"
-            @click="activePanel=activePanel==='organizer'?'editor':'organizer'"
-            title="Block Organizer (Ctrl+O)"
-          >
-            <i class="ti ti-layout-rows"></i>Organize
-          </button>
-          <button
-            class="tb-icon"
-            @click="openHistory"
-            title="Version History (Ctrl+Shift+H)"
-          >
-            <i class="ti ti-history"></i>
-          </button>
-          <div class="tb-sep"></div>
-          <button class="tb-btn" @click="openImgManager">
-            <i class="ti ti-photo"></i>Images
-          </button>
-          <button class="tb-btn" @click="openTemplates">
-            <i class="ti ti-layout-grid"></i>Templates
-          </button>
-          <button class="tb-btn" @click="openExport">
-            <i class="ti ti-download"></i>Export
-          </button>
-          <button class="tb-icon" @click="openSettings" title="Settings">
-            <i class="ti ti-settings"></i>
-          </button>
-
-          <div class="tb-sep"></div>
-          <button
-            class="tb-icon"
-            :class="{active:sidebarOpen}"
-            @click="sidebarOpen=!sidebarOpen"
-          >
-            <i class="ti ti-layout-sidebar"></i>
-          </button>
-          <button
-            class="tb-icon"
-            :class="{active:showStylePanel}"
-            @click="showStylePanel=!showStylePanel"
-          >
-            <i class="ti ti-palette"></i>
-          </button>
-          <button
-            class="tb-icon"
-            :class="{active:focusMode}"
-            @click="focusMode=true"
-          >
-            <i class="ti ti-maximize"></i>
-          </button>
-          <button class="tb-icon" @click="toggleDark">
-            <i :class="darkMode?'ti ti-sun':'ti ti-moon'"></i>
-          </button>
-          <button class="tb-icon" @click="showShortcuts=true">
-            <i class="ti ti-keyboard"></i>
+              class="tb-icon"
+              :class="{active:showStylePanel}"
+              @click="showStylePanel=!showStylePanel"
+              title="Style panel"
+            >
+              <i class="ti ti-palette"></i>
           </button>
         </div>
       </div>
@@ -250,23 +261,33 @@
             </button>
           </div>
           <div class="sb-scroll">
-            <div class="sb-section" style="border: none">
-              <div class="sb-title">Templates</div>
+            <div class="sb-section sb-collapsible" style="border: none">
               <button
-                v-for="t in TEMPLATES.slice(0,7)"
-                :key="t.id"
-                class="sb-btn"
-                @click="loadTemplate(t)"
+                class="sb-title sb-title-toggle"
+                @click="sidebarTemplatesOpen=!sidebarTemplatesOpen"
               >
-                <i :class="'ti '+t.icon"></i>{{t.name}}
+                <span>Templates</span>
+                <i :class="sidebarTemplatesOpen?'ti ti-chevron-up':'ti ti-chevron-down'"></i>
               </button>
-              <button
-                class="sb-btn"
-                style="color: var(--acc)"
-                @click="openTemplates"
-              >
-                <i class="ti ti-dots"></i>All…
-              </button>
+              <transition name="sb-collapse">
+                <div v-show="sidebarTemplatesOpen" class="sb-collapse-body">
+                  <button
+                    v-for="t in TEMPLATES.slice(0,7)"
+                    :key="t.id"
+                    class="sb-btn"
+                    @click="loadTemplate(t)"
+                  >
+                    <i :class="'ti '+t.icon"></i>{{t.name}}
+                  </button>
+                  <button
+                    class="sb-btn"
+                    style="color: var(--acc)"
+                    @click="openTemplates"
+                  >
+                    <i class="ti ti-dots"></i>All…
+                  </button>
+                </div>
+              </transition>
             </div>
             <div class="sb-section" style="border: none; padding-top: 4px">
               <div class="sb-title">Outline</div>
@@ -813,6 +834,31 @@
                       v-model.number="previewScaleFactor"
                     />
                     <span class="val">{{previewScaleFactor.toFixed(2)}}x</span>
+                  </div>
+                </div>
+                <div class="sp-section">
+                  <div class="sp-title">Media Blocks</div>
+                  <div class="slider-row">
+                    <label>Border</label>
+                    <input
+                      type="checkbox"
+                      v-model="mediaBlockBorder"
+                      style="width: auto; justify-self: end"
+                    />
+                  </div>
+                  <div class="slider-row">
+                    <label>Background</label>
+                    <select v-model="mediaBlockBgMode">
+                      <option value="transparent">Transparent</option>
+                      <option value="color">Color</option>
+                    </select>
+                  </div>
+                  <div class="color-row" v-if="mediaBlockBgMode==='color'">
+                    <label>Block color</label
+                    ><input type="color" v-model="mediaBlockBgColor" /><span
+                      style="font-size: 10px; color: var(--fg3)"
+                      >{{mediaBlockBgColor}}</span
+                    >
                   </div>
                 </div>
                 <div class="sp-section">
