@@ -640,25 +640,6 @@ select {
   text-transform: uppercase;
   color: var(--fg3);
 }
-.code-block-wrap .copy-code-btn {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
-  border: 1px solid var(--border);
-  background: var(--bg0);
-  color: var(--fg2);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1;
-}
-.code-block-wrap .copy-code-btn:hover {
-  background: var(--acc-bg);
-  color: var(--acc2);
-}
 .code-block-wrap pre {
   margin: 0;
   padding: 2.1em 1em 1em;
@@ -719,11 +700,6 @@ select {
   text-align: center;
   overflow-x: auto;
 }
-.mermaid-block .copy-code-btn {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-}
 .mermaid-block svg {
   max-width: 100%;
   height: auto;
@@ -779,7 +755,7 @@ select {
   font-family: var(--font-mono);
 }
 @media print {
-  .copy-code-btn {
+  .preview-block-toolbar{
     display: none !important;
   }
 }

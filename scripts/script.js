@@ -463,7 +463,7 @@ function setupMarked() {
   renderer.code = (code, lang) => {
     if (lang === "mermaid") {
       const id = "mmd-" + Math.random().toString(36).slice(2, 8);
-      return `<div class="mermaid-block code-block-wrap" data-id="${id}" data-code="${escHtml(code)}"><span class="code-lang">mermaid</span><button class="copy-code-btn" onclick="copyCode(this)" title="Copy"><i class="ti ti-copy"></i></button><pre class="mermaid">${escHtml(code)}</pre></div>`;
+      return `<div class="mermaid-block code-block-wrap" data-id="${id}" data-code="${escHtml(code)}"><span class="code-lang">mermaid</span><pre class="mermaid">${escHtml(code)}</pre></div>`;
     }
     const validLang = lang && hljs && hljs.getLanguage(lang) ? lang : null;
     const highlighted = validLang
@@ -475,7 +475,7 @@ function setupMarked() {
     const langLabel = lang
       ? `<span class="code-lang">${escHtml(lang)}</span>`
       : "";
-    return `<div class="code-block-wrap" data-code="${escHtml(code)}">${langLabel}<button class="copy-code-btn" onclick="copyCode(this)" title="Copy"><i class="ti ti-copy"></i></button><pre><code class="hljs ${lang || ""}">${highlighted}</code></pre></div>`;
+    return `<div class="code-block-wrap" data-code="${escHtml(code)}">${langLabel}<pre><code class="hljs ${lang || ""}">${highlighted}</code></pre></div>`;
   };
 
   // Headings — add slug ids for outline/anchor
