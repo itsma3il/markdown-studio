@@ -41,6 +41,11 @@
       href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css"
     />
     <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
+    <script
+      src="scripts/vendor/codemirror-bundle.js"
+      onerror="console.warn('[editor] CM bundle not found, using textarea fallback')"
+    ></script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -119,6 +124,14 @@
         >
           <i class="ti ti-eye"></i>
         </button>
+        <button
+          class="tb-icon"
+          :class="{active:syncScrollEnabled}"
+          @click="toggleSyncScroll"
+          title="Sync scroll"
+        >
+          <i class="ti ti-arrows-left-right"></i>
+        </button>
         <div class="tb-sep"></div>
         <select class="tb-theme-sel" v-model="renderTheme">
           <option v-for="t in renderThemes" :key="t.id" :value="t.id">
@@ -150,6 +163,13 @@
           >
             <i class="ti ti-layout-rows"></i>Organize
           </button>
+          <button
+            class="tb-icon"
+            @click="openHistory"
+            title="Version History (Ctrl+Shift+H)"
+          >
+            <i class="ti ti-history"></i>
+          </button>
           <div class="tb-sep"></div>
           <button class="tb-btn" @click="openImgManager">
             <i class="ti ti-photo"></i>Images
@@ -160,6 +180,10 @@
           <button class="tb-btn" @click="openExport">
             <i class="ti ti-download"></i>Export
           </button>
+          <button class="tb-icon" @click="openSettings" title="Settings">
+            <i class="ti ti-settings"></i>
+          </button>
+
           <div class="tb-sep"></div>
           <button
             class="tb-icon"
@@ -397,6 +421,13 @@
                 <button class="tool-btn" @click="openFR" title="Find & Replace">
                   <i class="ti ti-replace"></i>
                 </button>
+                <button
+                  class="tool-btn"
+                  @click="manualSnapshot"
+                  title="Save snapshot (version)"
+                >
+                  <i class="ti ti-camera"></i>
+                </button>
               </template>
               <template v-else>
                 <span style="font-size: 11px; color: var(--fg2)"
@@ -425,18 +456,8 @@
               id="editor-wrap"
               v-show="activePanel==='editor'"
               @contextmenu.prevent="openEditorCtx"
-            >
-              <textarea
-                id="editor-textarea"
-                ref="editorRef"
-                v-model="currentContent"
-                :style="{whiteSpace:wordWrap?'pre-wrap':'pre',fontSize:editorFontSize+'px',lineHeight:editorLineHeight}"
-                @keydown="onEditorKeydown"
-                @input="onInput"
-                spellcheck="false"
-                placeholder="# Start writing…&#10;&#10;Use Ctrl+M for LaTeX, Ctrl+G for Mermaid, Ctrl+O to organize blocks"
-              ></textarea>
-            </div>
+              ref="editorWrap"
+            ></div>
             <!-- BLOCK ORGANIZER -->
             <div class="block-organizer" v-show="activePanel==='organizer'">
               <div class="block-org-toolbar">
@@ -579,7 +600,7 @@
               <span style="font-size: 11px; color: var(--fg2)"
                 >{{currentThemeName}}</span
               >
-              <div style="margin-left: auto; display: flex; gap: 3px">
+              <div class="preview-actions">
                 <button
                   class="tool-btn"
                   :class="{active:showStylePanel}"
@@ -595,10 +616,10 @@
                 </button>
               </div>
             </div>
-            <div id="preview-scroller" @contextmenu.prevent="openPreviewCtx">
+            <div id="preview-scroller" ref="previewScroller" @contextmenu.prevent="openPreviewCtx">
               <div
                 id="preview-page"
-                :class="['md-body','theme-'+renderTheme]"
+                :class="['md-body','theme-'+renderTheme, previewPageClass]"
                 :style="previewPageStyle"
                 v-html="renderedHtml"
               ></div>
@@ -610,27 +631,9 @@
               class="style-panel"
               v-if="showStylePanel"
             >
-              <div
-                style="
-                  height: 36px;
-                  min-height: 36px;
-                  display: flex;
-                  align-items: center;
-                  justify-content: space-between;
-                  padding: 0 10px;
-                  border-bottom: 1px solid var(--border);
-                  flex-shrink: 0;
-                "
-              >
-                <span
-                  style="
-                    font-size: 12px;
-                    font-weight: 600;
-                    display: flex;
-                    align-items: center;
-                    gap: 5px;
-                  "
-                  ><i class="ti ti-palette" style="color: var(--acc)"></i
+              <div class="style-panel-header">
+                <span class="style-panel-title"
+                  ><i class="ti ti-palette"></i
                   >Style</span
                 >
                 <button class="tool-btn" @click="showStylePanel=false">
@@ -752,6 +755,67 @@
                   </div>
                 </div>
                 <div class="sp-section">
+                  <div class="sp-title">Tables</div>
+                  <div class="slider-row">
+                    <label>Layout</label>
+                    <select v-model="previewTableLayout">
+                      <option value="full">Full width</option>
+                      <option value="fit">Fit content</option>
+                      <option value="center">Centered</option>
+                    </select>
+                  </div>
+                  <div class="slider-row">
+                    <label>Font size</label>
+                    <input
+                      type="range"
+                      min="0.8"
+                      max="1.2"
+                      step="0.02"
+                      v-model.number="previewTableFontScale"
+                    />
+                    <span class="val">{{previewTableFontScale.toFixed(2)}}x</span>
+                  </div>
+                  <div class="slider-row">
+                    <label>Dense cells</label>
+                    <input
+                      type="checkbox"
+                      v-model="previewTableCompact"
+                      style="width: auto; justify-self: end"
+                    />
+                  </div>
+                  <div class="slider-row">
+                    <label>Striped rows</label>
+                    <input
+                      type="checkbox"
+                      v-model="previewTableStriped"
+                      style="width: auto; justify-self: end"
+                    />
+                  </div>
+                </div>
+                <div class="sp-section">
+                  <div class="sp-title">Block Scale</div>
+                  <div class="slider-row">
+                    <label>Scope</label>
+                    <select v-model="previewScaleScope">
+                      <option value="all">All blocks</option>
+                      <option value="media">Media + diagrams</option>
+                      <option value="images">Images only</option>
+                      <option value="mermaid">Mermaid only</option>
+                    </select>
+                  </div>
+                  <div class="slider-row">
+                    <label>Scale</label>
+                    <input
+                      type="range"
+                      min="0.5"
+                      max="2"
+                      step="0.05"
+                      v-model.number="previewScaleFactor"
+                    />
+                    <span class="val">{{previewScaleFactor.toFixed(2)}}x</span>
+                  </div>
+                </div>
+                <div class="sp-section">
                   <div class="sp-title">Colors</div>
                   <div class="color-row">
                     <label>Body text</label
@@ -814,6 +878,14 @@
           ></span
           >{{unsaved?'Unsaved':'Saved'}}</span
         >
+        <span>
+          <span
+            class="status-dot"
+            :style="{background: autosaveStatus==='saved' ? 'var(--suc)' : autosaveStatus==='saving' ? 'var(--warn)' : 'var(--err)'}"
+          ></span>
+          {{ autosaveStatus === 'saved' ? 'Autosaved' : autosaveStatus ===
+          'saving' ? 'Saving…' : 'Unsaved' }}
+        </span>
         <span
           ><i
             class="ti ti-letter-case"
@@ -832,8 +904,7 @@
           @click="showShortcuts=true"
           >⌨ Shortcuts</span
         >
-        <span style="color: var(--acc)" >Ⓒ Mousdik Ismail</span
-        >
+        <span style="color: var(--acc)">Ⓒ Mousdik Ismail</span>
       </div>
 
       <!-- ══════ LATEX BUILDER MODAL ══════ -->
@@ -1287,7 +1358,7 @@
         v-if="showImgManager"
         @click.self="showImgManager=false"
       >
-        <div class="modal-box modal-wide">
+        <div class="modal-box modal-wide image-manager-modal">
           <div class="modal-header">
             <div class="modal-title">
               <i class="ti ti-photo"></i>Image Manager
@@ -1296,15 +1367,7 @@
               <i class="ti ti-x"></i>
             </button>
           </div>
-          <div
-            style="
-              display: flex;
-              align-items: center;
-              gap: 8px;
-              margin-bottom: 12px;
-              flex-wrap: wrap;
-            "
-          >
+          <div class="img-manager-tools">
             <button class="btn btn-primary btn-sm" @click="triggerImgUpload">
               <i class="ti ti-upload"></i>Upload
             </button>
@@ -1331,24 +1394,22 @@
             >
               <i class="ti ti-trash"></i>Delete
             </button>
-            <span style="margin-left: auto; font-size: 11px; color: var(--fg3)"
-              >{{images.length}} image(s)</span
-            >
+            <span class="img-count">{{images.length}} image(s)</span>
           </div>
-          <div
-            v-if="!images.length"
-            style="text-align: center; padding: 40px; color: var(--fg3)"
+          <button
+            class="img-upload-zone"
+            @click="triggerImgUpload"
+            @dragover.prevent
+            @drop.prevent="onImgDrop"
           >
-            <i
-              class="ti ti-photo-off"
-              style="
-                font-size: 40px;
-                display: block;
-                margin-bottom: 8px;
-                opacity: 0.4;
-              "
-            ></i
-            >No images yet
+            <span class="img-upload-icon"><i class="ti ti-cloud-upload"></i></span>
+            <span class="img-upload-copy">
+              <strong>Upload images</strong>
+              <small>PNG, JPG, GIF, SVG</small>
+            </span>
+          </button>
+          <div v-if="!images.length" class="img-empty-state">
+            <i class="ti ti-photo-off"></i>No images yet
           </div>
           <div v-else class="img-grid">
             <div
@@ -1764,6 +1825,9 @@
             {{frCount}} match{{frCount!==1?'es':''}} found
           </div>
           <div class="modal-footer">
+            <button class="btn btn-sm" @click="frGoTo">
+              <i class="ti ti-route"></i>Go to
+            </button>
             <button class="btn btn-sm" @click="frDoFind">
               <i class="ti ti-search"></i>Find all
             </button>
@@ -1773,6 +1837,244 @@
             <button class="btn btn-sm btn-primary" @click="frReplaceAll">
               <i class="ti ti-replace-filled"></i>Replace all
             </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══════ SETTINGS MODAL ══════ -->
+      <div
+        class="modal-overlay"
+        v-if="showSettings"
+        @click.self="showSettings=false"
+      >
+        <div class="modal-box" style="max-width: 520px">
+          <div class="modal-header">
+            <div class="modal-title">
+              <i class="ti ti-settings"></i> Settings
+            </div>
+            <button class="modal-close" @click="showSettings=false">
+              <i class="ti ti-x"></i>
+            </button>
+          </div>
+
+          <div
+            style="
+              padding: 16px 20px;
+              display: flex;
+              flex-direction: column;
+              gap: 18px;
+            "
+          >
+            <!-- Autosave -->
+            <div class="sp-section">
+              <div class="sp-title">Autosave</div>
+              <div class="slider-row">
+                <label>Delay</label>
+                <input
+                  type="range"
+                  min="500"
+                  max="10000"
+                  step="500"
+                  v-model.number="settingsAutosaveDelay"
+                />
+                <span class="val"
+                  >{{ (settingsAutosaveDelay/1000).toFixed(1) }}s</span
+                >
+              </div>
+            </div>
+
+            <!-- Snapshots -->
+            <div class="sp-section">
+              <div class="sp-title">Version Snapshots</div>
+              <div class="slider-row">
+                <label>Auto-snapshot every</label>
+                <input
+                  type="range"
+                  min="1"
+                  max="60"
+                  step="1"
+                  v-model.number="settingsSnapshotFreq"
+                />
+                <span class="val">{{ settingsSnapshotFreq }} min</span>
+              </div>
+            </div>
+
+            <!-- Editor -->
+            <div class="sp-section">
+              <div class="sp-title">Editor</div>
+              <div class="slider-row">
+                <label>Font size</label>
+                <input
+                  type="range"
+                  min="11"
+                  max="24"
+                  v-model.number="settingsEditorFontSize"
+                />
+                <span class="val">{{ settingsEditorFontSize }}px</span>
+              </div>
+              <div class="slider-row" style="margin-top: 6px">
+                <label>Line height</label>
+                <input
+                  type="range"
+                  min="1.2"
+                  max="2.4"
+                  step="0.05"
+                  v-model.number="settingsLineHeight"
+                />
+                <span class="val">{{ settingsLineHeight.toFixed(2) }}</span>
+              </div>
+              <div
+                style="
+                  display: flex;
+                  gap: 10px;
+                  margin-top: 8px;
+                  align-items: center;
+                "
+              >
+                <label style="font-size: 12px; color: var(--fg2)"
+                  >Word wrap</label
+                >
+                <input type="checkbox" v-model="settingsWordWrap" />
+                <label
+                  style="font-size: 12px; color: var(--fg2); margin-left: 12px"
+                  >Spellcheck</label
+                >
+                <input type="checkbox" v-model="settingsSpellcheck" />
+              </div>
+            </div>
+          </div>
+
+          <div
+            style="
+              display: flex;
+              justify-content: flex-end;
+              gap: 8px;
+              padding: 12px 20px;
+              border-top: 1px solid var(--border);
+            "
+          >
+            <button class="btn btn-sm" @click="showSettings=false">
+              Cancel
+            </button>
+            <button class="btn btn-sm btn-primary" @click="applySettings">
+              <i class="ti ti-check"></i> Apply
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══════ VERSION HISTORY MODAL ══════ -->
+      <div
+        class="modal-overlay"
+        v-if="showHistory"
+        @click.self="showHistory=false"
+      >
+        <div
+          class="modal-box"
+          style="
+            max-width: 600px;
+            max-height: 80vh;
+            display: flex;
+            flex-direction: column;
+          "
+        >
+          <div class="modal-header">
+            <div class="modal-title">
+              <i class="ti ti-history"></i> Version History
+            </div>
+            <button class="modal-close" @click="showHistory=false">
+              <i class="ti ti-x"></i>
+            </button>
+          </div>
+
+          <div
+            style="
+              padding: 10px 16px;
+              border-bottom: 1px solid var(--border);
+              display: flex;
+              gap: 8px;
+              flex-shrink: 0;
+            "
+          >
+            <button class="btn btn-sm btn-primary" @click="manualSnapshot">
+              <i class="ti ti-camera"></i> Save snapshot now
+            </button>
+            <span style="font-size: 11px; color: var(--fg3); margin: auto 0">
+              {{ snapshots.length }} snapshot(s) · auto every {{ snapshotFreq }}
+              min
+            </span>
+          </div>
+
+          <div style="flex: 1; overflow-y: auto; padding: 8px 16px">
+            <div
+              v-if="!snapshots.length"
+              style="
+                text-align: center;
+                color: var(--fg3);
+                padding: 32px 0;
+                font-size: 13px;
+              "
+            >
+              No snapshots yet. Start editing and they will appear here
+              automatically.
+            </div>
+
+            <div
+              v-for="snap in snapshots"
+              :key="snap.id"
+              style="
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                padding: 10px 0;
+                border-bottom: 1px solid var(--border);
+              "
+            >
+              <i
+                class="ti ti-camera"
+                style="color: var(--acc); font-size: 14px; flex-shrink: 0"
+              ></i>
+              <div style="flex: 1; min-width: 0">
+                <div
+                  style="font-size: 13px; font-weight: 500; color: var(--fg1)"
+                >
+                  {{ snap.label }}
+                </div>
+                <div style="font-size: 11px; color: var(--fg3)">
+                  {{ formatSnapDate(snap.savedAt) }} · {{ snap.content.length }}
+                  chars
+                </div>
+              </div>
+              <button
+                class="btn btn-sm"
+                @click="restoreSnapshot(snap)"
+                title="Restore this version"
+                style="flex-shrink: 0"
+              >
+                <i class="ti ti-restore"></i> Restore
+              </button>
+              <button
+                class="btn btn-sm"
+                @click="removeSnapshot(snap)"
+                title="Delete snapshot"
+                style="flex-shrink: 0; color: var(--err)"
+              >
+                <i class="ti ti-trash"></i>
+              </button>
+            </div>
+          </div>
+
+          <div
+            style="
+              padding: 10px 16px;
+              border-top: 1px solid var(--border);
+              font-size: 11px;
+              color: var(--fg3);
+              flex-shrink: 0;
+            "
+          >
+            Snapshots are stored locally in IndexedDB. Up to 50 snapshots per
+            file.
           </div>
         </div>
       </div>
@@ -1998,7 +2300,7 @@
         </div>
       </div>
     </div>
-    <script src="scripts/script.js"></script>
+    <script type="module" src="scripts/script.js"></script>
     <script>
       let app;
     </script>

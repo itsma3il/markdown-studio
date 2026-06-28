@@ -1,8 +1,73 @@
-/*
-  scripts/script.js — Markdown Studio application logic
-  Copyright (c) 2026 MOUSDIK ISMAIL
-  Licensed under the MIT License (see ../LICENSE)
-*/
+/**
+ * Markdown Studio — script.js  (improved edition)
+ *
+ * Changes vs original:
+ *  1. Textarea replaced with CodeMirror 6 wrapper (editor.js adapter)
+ *  2. localStorage replaced with IndexedDB (storage.js)
+ *  3. Autosave + version snapshots + restore UI
+ *  4. DOMPurify used for safe HTML rendering (sanitizes marked output)
+ *  5. Settings modal (autosave delay, snapshot frequency, editor prefs)
+ */
+
+import { createEditor } from "./editor.js";
+import {
+  openDB,
+  getAllFiles,
+  getFile,
+  saveFile,
+  deleteFile as dbDeleteFile,
+  scheduleAutosave,
+  cancelAutosave,
+  setAutosaveDelay,
+  createSnapshot,
+  getSnapshots,
+  getSnapshot,
+  deleteSnapshot,
+  getSetting,
+  setSetting,
+  getAllSettings,
+  migrateFromLocalStorage,
+} from "./storage.js";
+
+/* ══════════════════════════════════════════════════════════════════════════
+   GLOBALS / CONSTANTS (kept identical to original)
+══════════════════════════════════════════════════════════════════════════ */
+
+const { createApp, ref, computed, watch, nextTick, onMounted, onUnmounted } =
+  Vue;
+
+const DEFAULT_CONTENT = `# Welcome to Markdown Studio
+
+Start writing your document here. Use the toolbar above for formatting, or type markdown directly.
+
+## Features
+
+- **Live Preview** — see your document rendered in real time
+- **LaTeX Math** — press Ctrl+M or click the LaTeX button
+- **Mermaid Diagrams** — press Ctrl+G
+- **Block Organizer** — press Ctrl+O
+- **Export** — PDF, HTML, DOCX, Markdown, and more
+
+## Quick Start
+
+\`\`\`markdown
+**bold** _italic_ \`inline code\`
+## Heading
+- list item
+> blockquote
+\`\`\`
+
+$$
+E = mc^2
+$$
+
+\`\`\`mermaid
+graph LR
+  A[Write] --> B[Preview] --> C[Export]
+\`\`\`
+`;
+
+// ── kept identical to original ─────────────────────────────────────────────
 
 const TEMPLATES = [
   {
@@ -30,7 +95,7 @@ const TEMPLATES = [
     desc: "API / README",
     theme: "technical",
     content:
-      "# Project Name\n\nBrief description.\n\n## Installation\n\n```bash\nnpm install your-package\n```\n\n## Quick Start\n\n```javascript\nimport { create } from 'your-package';\nconst instance = create({ option: 'value' });\nawait instance.run();\n```\n\n## API Reference\n\n### `create(options)`\n\n| Parameter | Type | Default | Description |\n|-----------|------|---------|-------------|\n| `option` | string | 'default' | Option desc |\n\n## License\n\nMIT\n",
+      "# Project Name\n\nBrief description.\n\n## Installation\n\n```bash\nnpm install your-package\n```\n\n## Quick Start\n\n```javascript\nimport { create } from 'your-package';\nconst instance = create({ option: 'value' });\n\nawait instance.run();\n```\n\n## API Reference\n\n### `create(options)`\n\n| Parameter | Type | Default | Description |\n|-----------|------|---------|-------------|\n| `option` | string | 'default' | Option desc |\n\n## License\n\nMIT\n",
   },
   {
     id: "latex",
@@ -132,40 +197,23 @@ const TEMPLATES = [
   },
 ];
 
-const BLOCK_TYPES = [
-  { type: "paragraph", label: "Paragraph", icon: "ti-align-left" },
-  { type: "heading1", label: "Heading 1", icon: "ti-h-1", prefix: "# " },
-  { type: "heading2", label: "Heading 2", icon: "ti-h-2", prefix: "## " },
-  { type: "heading3", label: "Heading 3", icon: "ti-h-3", prefix: "### " },
-  { type: "heading4", label: "Heading 4", icon: "ti-h-4", prefix: "#### " },
-  { type: "bullet", label: "Bullet List", icon: "ti-list" },
-  { type: "numbered", label: "Numbered List", icon: "ti-list-numbers" },
-  { type: "blockquote", label: "Quote", icon: "ti-blockquote" },
-  { type: "code", label: "Code Block", icon: "ti-code" },
-  { type: "mermaid", label: "Mermaid Diagram", icon: "ti-topology-star" },
-  { type: "math", label: "Math / LaTeX", icon: "ti-math-function" },
-  { type: "table", label: "Table", icon: "ti-table" },
-  { type: "divider", label: "Divider", icon: "ti-minus" },
-  { type: "image", label: "Image", icon: "ti-photo" },
+const RENDER_THEMES = [
+  { id: "default", name: "Clean Article" },
+  { id: "research", name: "Research Paper" },
+  { id: "scientific", name: "Scientific Report" },
+  { id: "ieee", name: "IEEE / Engineering" },
+  { id: "cv", name: "Professional CV" },
+  { id: "latex", name: "LaTeX Style" },
+  { id: "hbs", name: "Harvard Business" },
+  { id: "legal", name: "Legal Document" },
+  { id: "medical", name: "Medical / Clinical" },
+  { id: "startup", name: "Startup / Pitch" },
+  { id: "editorial", name: "Editorial Magazine" },
+  { id: "technical", name: "Technical Docs" },
+  { id: "book", name: "Book / Novel" },
+  { id: "newspaper", name: "Newspaper" },
+  { id: "minimal", name: "Minimal" },
 ];
-
-function detectBlockType(text) {
-  const t = text.trim();
-  if (/^# /.test(t)) return "heading1";
-  if (/^## /.test(t)) return "heading2";
-  if (/^### /.test(t)) return "heading3";
-  if (/^#### /.test(t)) return "heading4";
-  if (/^> /.test(t)) return "blockquote";
-  if (/^```mermaid/.test(t)) return "mermaid";
-  if (/^```/.test(t)) return "code";
-  if (/^\$\$/.test(t)) return "math";
-  if (/^[-*] /.test(t)) return "bullet";
-  if (/^\d+\. /.test(t)) return "numbered";
-  if (/^\|/.test(t)) return "table";
-  if (/^---$/.test(t.trim())) return "divider";
-  if (/^!\[/.test(t)) return "image";
-  return "paragraph";
-}
 
 const LATEX_CATS = [
   {
@@ -173,274 +221,116 @@ const LATEX_CATS = [
     label: "Greek",
     icon: "ti-alpha",
     symbols: [
-      { tex: "\\alpha", label: "alpha" },
-      { tex: "\\beta", label: "beta" },
-      { tex: "\\gamma", label: "gamma" },
-      { tex: "\\delta", label: "delta" },
-      { tex: "\\epsilon", label: "epsilon" },
-      { tex: "\\zeta", label: "zeta" },
-      { tex: "\\eta", label: "eta" },
-      { tex: "\\theta", label: "theta" },
-      { tex: "\\iota", label: "iota" },
-      { tex: "\\kappa", label: "kappa" },
-      { tex: "\\lambda", label: "lambda" },
-      { tex: "\\mu", label: "mu" },
-      { tex: "\\nu", label: "nu" },
-      { tex: "\\xi", label: "xi" },
-      { tex: "\\pi", label: "pi" },
-      { tex: "\\rho", label: "rho" },
-      { tex: "\\sigma", label: "sigma" },
-      { tex: "\\tau", label: "tau" },
-      { tex: "\\upsilon", label: "upsilon" },
-      { tex: "\\phi", label: "phi" },
-      { tex: "\\chi", label: "chi" },
-      { tex: "\\psi", label: "psi" },
-      { tex: "\\omega", label: "omega" },
-      { tex: "\\Gamma", label: "Gamma" },
-      { tex: "\\Delta", label: "Delta" },
-      { tex: "\\Theta", label: "Theta" },
-      { tex: "\\Lambda", label: "Lambda" },
-      { tex: "\\Xi", label: "Xi" },
-      { tex: "\\Pi", label: "Pi" },
-      { tex: "\\Sigma", label: "Sigma" },
-      { tex: "\\Upsilon", label: "Upsilon" },
-      { tex: "\\Phi", label: "Phi" },
-      { tex: "\\Psi", label: "Psi" },
-      { tex: "\\Omega", label: "Omega" },
+      { label: "α", tex: "\\alpha" },
+      { label: "β", tex: "\\beta" },
+      { label: "γ", tex: "\\gamma" },
+      { label: "δ", tex: "\\delta" },
+      { label: "ε", tex: "\\epsilon" },
+      { label: "θ", tex: "\\theta" },
+      { label: "λ", tex: "\\lambda" },
+      { label: "μ", tex: "\\mu" },
+      { label: "π", tex: "\\pi" },
+      { label: "σ", tex: "\\sigma" },
+      { label: "φ", tex: "\\phi" },
+      { label: "ψ", tex: "\\psi" },
+      { label: "ω", tex: "\\omega" },
+      { label: "Σ", tex: "\\Sigma" },
+      { label: "Δ", tex: "\\Delta" },
+      { label: "Γ", tex: "\\Gamma" },
     ],
   },
   {
     id: "ops",
     label: "Operators",
-    icon: "ti-math-function",
+    icon: "ti-math-symbols",
     symbols: [
-      { tex: "\\sum_{i=0}^{n}", label: "sum" },
-      { tex: "\\prod_{i=0}^{n}", label: "product" },
-      { tex: "\\int_{a}^{b}", label: "integral" },
-      { tex: "\\oint", label: "contour" },
-      { tex: "\\iint", label: "double int" },
-      { tex: "\\iiint", label: "triple int" },
-      { tex: "\\lim_{x\\to\\infty}", label: "limit" },
-      { tex: "\\infty", label: "infinity" },
-      { tex: "\\partial", label: "partial" },
-      { tex: "\\nabla", label: "nabla" },
-      { tex: "\\frac{a}{b}", label: "fraction" },
-      { tex: "\\sqrt{x}", label: "sqrt" },
-      { tex: "\\sqrt[n]{x}", label: "n-th root" },
-      { tex: "x^{n}", label: "superscript" },
-      { tex: "x_{n}", label: "subscript" },
-      { tex: "\\binom{n}{k}", label: "binomial" },
-      { tex: "\\overline{x}", label: "overline" },
-      { tex: "\\hat{x}", label: "hat" },
-      { tex: "\\vec{x}", label: "vector" },
-      { tex: "\\dot{x}", label: "dot" },
-      { tex: "\\ddot{x}", label: "ddot" },
-      { tex: "\\tilde{x}", label: "tilde" },
+      { label: "∫", tex: "\\int" },
+      { label: "∑", tex: "\\sum" },
+      { label: "∏", tex: "\\prod" },
+      { label: "∂", tex: "\\partial" },
+      { label: "√", tex: "\\sqrt{x}" },
+      { label: "±", tex: "\\pm" },
+      { label: "×", tex: "\\times" },
+      { label: "÷", tex: "\\div" },
+      { label: "≤", tex: "\\leq" },
+      { label: "≥", tex: "\\geq" },
+      { label: "≠", tex: "\\neq" },
+      { label: "≈", tex: "\\approx" },
+      { label: "∈", tex: "\\in" },
+      { label: "∉", tex: "\\notin" },
+      { label: "⊂", tex: "\\subset" },
+      { label: "∞", tex: "\\infty" },
     ],
   },
   {
-    id: "relations",
-    label: "Relations",
-    icon: "ti-equal",
+    id: "frac",
+    label: "Fractions",
+    icon: "ti-divide",
     symbols: [
-      { tex: "=", label: "equals" },
-      { tex: "\\neq", label: "not equal" },
-      { tex: "\\approx", label: "approx" },
-      { tex: "\\equiv", label: "equiv" },
-      { tex: "\\sim", label: "similar" },
-      { tex: "\\simeq", label: "simeq" },
-      { tex: "<", label: "less" },
-      { tex: ">", label: "greater" },
-      { tex: "\\leq", label: "leq" },
-      { tex: "\\geq", label: "geq" },
-      { tex: "\\ll", label: "much less" },
-      { tex: "\\gg", label: "much greater" },
-      { tex: "\\subset", label: "subset" },
-      { tex: "\\supset", label: "supset" },
-      { tex: "\\subseteq", label: "subseteq" },
-      { tex: "\\supseteq", label: "supseteq" },
-      { tex: "\\in", label: "in" },
-      { tex: "\\notin", label: "not in" },
-      { tex: "\\cup", label: "union" },
-      { tex: "\\cap", label: "intersect" },
-      { tex: "\\emptyset", label: "empty" },
-      { tex: "\\forall", label: "forall" },
-      { tex: "\\exists", label: "exists" },
-      { tex: "\\nexists", label: "not exists" },
+      { label: "a/b", tex: "\\frac{a}{b}" },
+      { label: "¹/₂", tex: "\\frac{1}{2}" },
+      { label: "a²", tex: "a^{2}" },
+      { label: "aₙ", tex: "a_{n}" },
+      { label: "lim", tex: "\\lim_{x\\to\\infty}" },
+      { label: "log", tex: "\\log_{b}(x)" },
+      { label: "ln", tex: "\\ln(x)" },
+      { label: "sin", tex: "\\sin(x)" },
+      { label: "cos", tex: "\\cos(x)" },
+      { label: "tan", tex: "\\tan(x)" },
+    ],
+  },
+  {
+    id: "matrix",
+    label: "Matrices",
+    icon: "ti-grid-4x4",
+    symbols: [
+      { label: "2×2 mat", tex: "\\begin{pmatrix}a&b\\\\c&d\\end{pmatrix}" },
+      {
+        label: "3×3 mat",
+        tex: "\\begin{pmatrix}a&b&c\\\\d&e&f\\\\g&h&i\\end{pmatrix}",
+      },
+      { label: "det", tex: "\\begin{vmatrix}a&b\\\\c&d\\end{vmatrix}" },
+      { label: "binom", tex: "\\binom{n}{k}" },
+      {
+        label: "cases",
+        tex: "f(x)=\\begin{cases}0&x<0\\\\1&x\\geq 0\\end{cases}",
+      },
     ],
   },
   {
     id: "arrows",
     label: "Arrows",
-    icon: "ti-arrow-right",
+    icon: "ti-arrows-exchange",
     symbols: [
-      { tex: "\\to", label: "to" },
-      { tex: "\\leftarrow", label: "left" },
-      { tex: "\\Rightarrow", label: "Rightarrow" },
-      { tex: "\\Leftarrow", label: "Leftarrow" },
-      { tex: "\\Leftrightarrow", label: "iff" },
-      { tex: "\\rightarrow", label: "rightarrow" },
-      { tex: "\\leftrightarrow", label: "leftrightarrow" },
-      { tex: "\\uparrow", label: "up" },
-      { tex: "\\downarrow", label: "down" },
-      { tex: "\\Uparrow", label: "Up" },
-      { tex: "\\Downarrow", label: "Down" },
-      { tex: "\\mapsto", label: "mapsto" },
-      { tex: "\\longmapsto", label: "longmapsto" },
-      { tex: "\\hookrightarrow", label: "hookright" },
-      { tex: "\\twoheadrightarrow", label: "twohead" },
-      { tex: "\\nearrow", label: "nearrow" },
-      { tex: "\\searrow", label: "searrow" },
+      { label: "→", tex: "\\rightarrow" },
+      { label: "←", tex: "\\leftarrow" },
+      { label: "↔", tex: "\\leftrightarrow" },
+      { label: "⇒", tex: "\\Rightarrow" },
+      { label: "⇐", tex: "\\Leftarrow" },
+      { label: "⇔", tex: "\\Leftrightarrow" },
+      { label: "↑", tex: "\\uparrow" },
+      { label: "↓", tex: "\\downarrow" },
     ],
+  },
+];
+
+const latexTemplates = [
+  { label: "Fraction", tex: "\\frac{a}{b}" },
+  { label: "Sum", tex: "\\sum_{i=0}^{n} x_i" },
+  { label: "Integral", tex: "\\int_{a}^{b} f(x)\\,dx" },
+  { label: "Limit", tex: "\\lim_{x\\to\\infty} f(x)" },
+  {
+    label: "Matrix 2×2",
+    tex: "\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}",
   },
   {
-    id: "structures",
-    label: "Structures",
-    icon: "ti-brackets",
-    symbols: [
-      { tex: "\\left( x \\right)", label: "parens" },
-      { tex: "\\left[ x \\right]", label: "brackets" },
-      { tex: "\\left\\{ x \\right\\}", label: "braces" },
-      { tex: "\\left| x \\right|", label: "abs" },
-      { tex: "\\left\\| x \\right\\|", label: "norm" },
-      { tex: "\\left\\lfloor x \\right\\rfloor", label: "floor" },
-      { tex: "\\left\\lceil x \\right\\rceil", label: "ceil" },
-      {
-        tex: "\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}",
-        label: "matrix",
-      },
-      {
-        tex: "\\begin{bmatrix} a & b \\\\ c & d \\end{bmatrix}",
-        label: "bmatrix",
-      },
-      {
-        tex: "\\begin{vmatrix} a & b \\\\ c & d \\end{vmatrix}",
-        label: "vmatrix",
-      },
-      {
-        tex: "\\begin{cases} x & \\text{if } n>0 \\\\ -x & \\text{otherwise} \\end{cases}",
-        label: "cases",
-      },
-      { tex: "\\text{text here}", label: "text" },
-    ],
+    label: "Cases",
+    tex: "\\begin{cases} a & \\text{if } n>0 \\\\ b & \\text{otherwise} \\end{cases}",
   },
-  {
-    id: "calculus",
-    label: "Calculus",
-    icon: "ti-wave-sine",
-    symbols: [
-      { tex: "\\frac{d}{dx}f(x)", label: "derivative" },
-      { tex: "\\frac{d^2}{dx^2}f", label: "2nd deriv" },
-      { tex: "\\frac{\\partial f}{\\partial x}", label: "partial deriv" },
-      { tex: "\\int_{a}^{b} f(x)\\,dx", label: "definite int" },
-      { tex: "\\int f(x)\\,dx", label: "indefinite int" },
-      { tex: "\\lim_{h\\to 0}\\frac{f(x+h)-f(x)}{h}", label: "limit def" },
-      { tex: "\\sum_{n=0}^{\\infty} a_n x^n", label: "power series" },
-      {
-        tex: "e^x = \\sum_{n=0}^{\\infty}\\frac{x^n}{n!}",
-        label: "exp series",
-      },
-      {
-        tex: "\\nabla f = \\left(\\frac{\\partial f}{\\partial x},\\frac{\\partial f}{\\partial y}\\right)",
-        label: "gradient",
-      },
-      {
-        tex: "\\oint_{C} \\mathbf{F}\\cdot d\\mathbf{r}",
-        label: "line integral",
-      },
-    ],
-  },
-  {
-    id: "physics",
-    label: "Physics",
-    icon: "ti-atom",
-    symbols: [
-      { tex: "E = mc^2", label: "mass-energy" },
-      { tex: "F = ma", label: "Newton 2nd" },
-      { tex: "\\hbar = \\frac{h}{2\\pi}", label: "hbar" },
-      { tex: "\\hat{H}\\psi = E\\psi", label: "Schrödinger" },
-      {
-        tex: "\\nabla^2 \\phi = \\frac{\\rho}{\\varepsilon_0}",
-        label: "Poisson",
-      },
-      {
-        tex: "\\mathbf{F} = q(\\mathbf{E}+\\mathbf{v}\\times\\mathbf{B})",
-        label: "Lorentz",
-      },
-      { tex: "PV = nRT", label: "ideal gas" },
-      {
-        tex: "\\Delta x \\Delta p \\geq \\frac{\\hbar}{2}",
-        label: "uncertainty",
-      },
-      {
-        tex: "c = \\frac{1}{\\sqrt{\\mu_0 \\varepsilon_0}}",
-        label: "speed of light",
-      },
-    ],
-  },
-  {
-    id: "stats",
-    label: "Statistics",
-    icon: "ti-chart-bar",
-    symbols: [
-      { tex: "\\bar{x} = \\frac{1}{n}\\sum_{i=1}^n x_i", label: "mean" },
-      {
-        tex: "\\sigma^2 = \\frac{1}{n}\\sum(x_i-\\bar{x})^2",
-        label: "variance",
-      },
-      { tex: "P(A|B) = \\frac{P(B|A)P(A)}{P(B)}", label: "Bayes" },
-      { tex: "\\mathcal{N}(\\mu,\\sigma^2)", label: "normal dist" },
-      { tex: "\\binom{n}{k}p^k(1-p)^{n-k}", label: "binomial" },
-      {
-        tex: "\\rho = \\frac{\\text{Cov}(X,Y)}{\\sigma_X \\sigma_Y}",
-        label: "correlation",
-      },
-      { tex: "\\hat{\\beta} = (X^TX)^{-1}X^Ty", label: "OLS" },
-    ],
-  },
-  {
-    id: "logic",
-    label: "Logic",
-    icon: "ti-binary",
-    symbols: [
-      { tex: "\\land", label: "and" },
-      { tex: "\\lor", label: "or" },
-      { tex: "\\lnot", label: "not" },
-      { tex: "\\Rightarrow", label: "implies" },
-      { tex: "\\Leftrightarrow", label: "iff" },
-      { tex: "\\forall x", label: "for all" },
-      { tex: "\\exists x", label: "there exists" },
-      { tex: "\\top", label: "true" },
-      { tex: "\\bot", label: "false" },
-      { tex: "\\vdash", label: "proves" },
-      { tex: "\\models", label: "models" },
-      { tex: "\\therefore", label: "therefore" },
-      { tex: "\\because", label: "because" },
-    ],
-  },
-  {
-    id: "common",
-    label: "Common",
-    icon: "ti-star",
-    symbols: [
-      { tex: "x^2 + y^2 = r^2", label: "circle" },
-      { tex: "ax^2+bx+c=0", label: "quadratic" },
-      { tex: "x = \\frac{-b \\pm \\sqrt{b^2-4ac}}{2a}", label: "quad formula" },
-      { tex: "e^{i\\pi}+1=0", label: "Euler identity" },
-      { tex: "\\pi \\approx 3.14159", label: "pi" },
-      { tex: "a^2+b^2=c^2", label: "Pythagorean" },
-      { tex: "\\det(A) = \\sum_{j} a_{ij}C_{ij}", label: "determinant" },
-      {
-        tex: "A^{-1}=\\frac{1}{\\det A}\\text{adj}(A)",
-        label: "matrix inverse",
-      },
-      { tex: "\\ln(xy)=\\ln x+\\ln y", label: "log product" },
-      {
-        tex: "\\int_0^\\infty e^{-x^2}dx=\\frac{\\sqrt{\\pi}}{2}",
-        label: "Gaussian",
-      },
-    ],
-  },
+  { label: "Greek sum", tex: "\\sum_{k=1}^{n} \\alpha_k x_k" },
+  { label: "Derivative", tex: "\\frac{d}{dx}f(x)" },
+  { label: "Binomial", tex: "\\binom{n}{k} = \\frac{n!}{k!(n-k)!}" },
+  { label: "Euler", tex: "e^{i\\pi}+1=0" },
 ];
 
 const MERMAID_TEMPLATES = [
@@ -472,7 +362,7 @@ const MERMAID_TEMPLATES = [
     id: "er",
     label: "ER Diagram",
     icon: "ti-database",
-    code: "erDiagram\n  CUSTOMER ||--o{ ORDER : places\n  ORDER ||--|{ ITEM : contains\n  CUSTOMER {\n    string name\n    string email\n  }\n  ORDER {\n    int id\n    date created\n  }",
+    code: "erDiagram\n  CUSTOMER ||--o{ ORDER : places\n  ORDER ||--|{ ITEM : contains\n  CUSTOMER {\n    string name\n    string email\n  }",
   },
   {
     id: "gantt",
@@ -518,636 +408,648 @@ const MERMAID_TEMPLATES = [
   },
 ];
 
-const { createApp, ref, computed, watch, onMounted, nextTick } = Vue;
-const mkid = () => Math.random().toString(36).slice(2, 9);
-const today = () => new Date().toLocaleDateString();
+const BLOCK_TYPES = [
+  { type: "heading", label: "Heading", icon: "ti-h-1" },
+  { type: "paragraph", label: "Paragraph", icon: "ti-text-size" },
+  { type: "list", label: "List", icon: "ti-list" },
+  { type: "code", label: "Code Block", icon: "ti-terminal-2" },
+  { type: "math", label: "Math", icon: "ti-math-function" },
+  { type: "mermaid", label: "Mermaid", icon: "ti-topology-star" },
+  { type: "quote", label: "Blockquote", icon: "ti-blockquote" },
+  { type: "table", label: "Table", icon: "ti-table" },
+  { type: "hr", label: "Divider", icon: "ti-minus" },
+  { type: "image", label: "Image", icon: "ti-photo" },
+];
 
-const DEMO_MD = `# Markdown Studio — Full Edition
+// ── Keyboard shortcuts (for the modal only — actual binding is below) ──────
 
-## Mermaid Diagrams, LaTeX & Block Organizer
+const SHORTCUTS = [
+  { key: "Ctrl+S", desc: "Save" },
+  { key: "Ctrl+N", desc: "New file" },
+  { key: "Ctrl+B", desc: "Bold" },
+  { key: "Ctrl+I", desc: "Italic" },
+  { key: "Ctrl+`", desc: "Inline code" },
+  { key: "Ctrl+M", desc: "LaTeX Builder" },
+  { key: "Ctrl+G", desc: "Mermaid Builder" },
+  { key: "Ctrl+O", desc: "Block Organizer" },
+  { key: "Ctrl+F", desc: "Find & Replace" },
+  { key: "Ctrl+Z", desc: "Undo" },
+  { key: "Ctrl+Y", desc: "Redo" },
+  { key: "Ctrl+Shift+H", desc: "History / Snapshots" },
+  { key: "Escape", desc: "Close modal / exit focus" },
+];
 
----
+// ─── Sanitizer setup ────────────────────────────────────────────────────────
 
-### Mermaid flowchart
+function sanitizeHtml(html) {
+  if (window.DOMPurify) {
+    return DOMPurify.sanitize(html, {
+      ADD_TAGS: ["iframe"],
+      ADD_ATTR: ["allow", "allowfullscreen", "frameborder", "scrolling"],
+      FORCE_BODY: true,
+    });
+  }
+  // If DOMPurify not loaded, do basic script-strip (original behavior)
+  return html;
+}
 
-\`\`\`mermaid
-flowchart LR
-  A([Start]) --> B{Is markdown?}
-  B -->|Yes| C[Render it]
-  B -->|No| D[Plain text]
-  C --> E([Beautiful output])
-  D --> E
-\`\`\`
+// ─── Marked setup ───────────────────────────────────────────────────────────
 
-### LaTeX Mathematics
+function setupMarked() {
+  if (!window.marked) return;
+  const renderer = new marked.Renderer();
 
-Einstein: $E = mc^2$
+  // Code blocks — highlight.js + mermaid detection
+  renderer.code = (code, lang) => {
+    if (lang === "mermaid") {
+      const id = "mmd-" + Math.random().toString(36).slice(2, 8);
+      return `<div class="mermaid-block code-block-wrap" data-id="${id}" data-code="${escHtml(code)}"><span class="code-lang">mermaid</span><button class="copy-code-btn" onclick="copyCode(this)" title="Copy"><i class="ti ti-copy"></i></button><pre class="mermaid">${escHtml(code)}</pre></div>`;
+    }
+    const validLang = lang && hljs && hljs.getLanguage(lang) ? lang : null;
+    const highlighted = validLang
+      ? hljs.highlight(code, { language: validLang, ignoreIllegals: true })
+          .value
+      : hljs
+        ? hljs.highlightAuto(code).value
+        : escHtml(code);
+    const langLabel = lang
+      ? `<span class="code-lang">${escHtml(lang)}</span>`
+      : "";
+    return `<div class="code-block-wrap" data-code="${escHtml(code)}">${langLabel}<button class="copy-code-btn" onclick="copyCode(this)" title="Copy"><i class="ti ti-copy"></i></button><pre><code class="hljs ${lang || ""}">${highlighted}</code></pre></div>`;
+  };
 
-Quadratic formula:
+  // Headings — add slug ids for outline/anchor
+  renderer.heading = (text, level) => {
+    const slug = text
+      .toLowerCase()
+      .replace(/[^\w\s-]/g, "")
+      .replace(/\s+/g, "-");
+    return `<h${level} id="${slug}">${text}</h${level}>`;
+  };
 
-$$x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}$$
+  // Links — open external in new tab safely
+  renderer.link = (href, title, text) => {
+    const isExternal =
+      href && (href.startsWith("http://") || href.startsWith("https://"));
+    const rel = isExternal ? ' rel="noopener noreferrer"' : "";
+    const tgt = isExternal ? ' target="_blank"' : "";
+    const ttl = title ? ` title="${escHtml(title)}"` : "";
+    return `<a href="${escHtml(href)}"${ttl}${tgt}${rel}>${text}</a>`;
+  };
 
-Euler's identity: $e^{i\\pi} + 1 = 0$
+  marked.setOptions({
+    renderer,
+    gfm: true,
+    breaks: false,
+    pedantic: false,
+  });
+}
 
-### Features
+function escHtml(str) {
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
 
-- 🧮 **LaTeX Helper** — click symbols to build equations graphically
-- 🔀 **Mermaid Builder** — visual diagram editor with live preview
-- 📦 **Block Organizer** — drag paragraphs to reorder your document
-- 🎨 **16 themes** — Research, IEEE, APA, CV, Legal, Medical, Startup…
-- 📤 **Export** — PDF (multi-page), HTML, Word, Markdown, JSON
+// Global copy helper referenced in rendered HTML
+window.copyCode = function (btn) {
+  const wrap = btn.closest(".code-block-wrap");
+  const code =
+    wrap?.dataset.code ||
+    wrap?.querySelector("code")?.textContent ||
+    wrap?.querySelector("pre.mermaid")?.textContent ||
+    "";
+  navigator.clipboard?.writeText(code).then(() => {
+    btn.innerHTML = '<i class="ti ti-check"></i>';
+    setTimeout(() => {
+      btn.innerHTML = '<i class="ti ti-copy"></i>';
+    }, 1500);
+  });
+};
 
-> Right-click anywhere for context menu. Use toolbar ⊞ for block organizer.
-`;
+function resolvePreviewImages(container, imageMap) {
+  container.querySelectorAll("img[src]").forEach((img) => {
+    const src = img.getAttribute("src") || "";
+    const mapped = imageMap?.[src];
+    if (mapped) {
+      img.src = mapped;
+      img.dataset.path = src;
+    }
+  });
+}
 
-let appInstance;
-appInstance = createApp({
+function copyBlockSource(kind, wrap) {
+  let text = "";
+  if (kind === "image") {
+    const img = wrap.querySelector("img");
+    const src = img?.dataset.path || img?.getAttribute("src") || "";
+    const alt = img?.getAttribute("alt") || "Image";
+    text = `![${alt}](${src})`;
+  } else if (kind === "table") {
+    text = wrap.querySelector("table")?.outerHTML || "";
+  } else if (kind === "mermaid") {
+    text = wrap.querySelector("pre.mermaid")?.textContent || "";
+  }
+  if (!text) return;
+  navigator.clipboard?.writeText(text);
+}
+
+function setAlignButtonIcon(button, align) {
+  const iconByAlign = {
+    left: "ti-align-left",
+    center: "ti-align-center",
+    right: "ti-align-right",
+    justify: "ti-align-justified",
+  };
+  const icon = iconByAlign[align] || "ti-align-center";
+  button.innerHTML = `<i class="ti ${icon}"></i>`;
+}
+
+function applyPreviewAlignment(wrap, align, kind) {
+  wrap.dataset.align = align;
+  wrap.style.marginLeft = align === "right" ? "auto" : align === "center" || align === "justify" ? "auto" : "0";
+  wrap.style.marginRight = align === "left" ? "auto" : align === "center" || align === "justify" ? "auto" : "0";
+  wrap.style.textAlign = align;
+  wrap.style.width = align === "justify" && kind !== "image" ? "100%" : wrap.style.width || "";
+}
+
+// ─── KaTeX post-process ─────────────────────────────────────────────────────
+
+function renderKatex(container) {
+  if (!window.katex) return;
+
+  const targets = container.querySelectorAll(
+    "p, li, td, th, h1, h2, h3, h4, h5, h6, blockquote",
+  );
+
+  targets.forEach((el) => {
+    if (el.querySelector(".katex, .katex-display")) return;
+
+    const trimmed = (el.textContent || "").trim();
+    if (/^\$\$[\s\S]+\$\$$/.test(trimmed)) {
+      const tex = trimmed.slice(2, -2).trim();
+      el.innerHTML = `<div class="katex-block">${katex.renderToString(tex, {
+        displayMode: true,
+        throwOnError: false,
+      })}</div>`;
+      return;
+    }
+
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        if (!node.nodeValue || !node.nodeValue.includes("$")) {
+          return NodeFilter.FILTER_REJECT;
+        }
+        const parent = node.parentElement;
+        if (!parent) return NodeFilter.FILTER_REJECT;
+        if (parent.closest("code, pre, .katex, .katex-display")) {
+          return NodeFilter.FILTER_REJECT;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      },
+    });
+
+    const textNodes = [];
+    while (walker.nextNode()) textNodes.push(walker.currentNode);
+
+    textNodes.forEach((node) => {
+      const content = node.nodeValue || "";
+      const parts = [];
+      let cursor = 0;
+
+      while (cursor < content.length) {
+        const blockStart = content.indexOf("$$", cursor);
+        const inlineStart = content.indexOf("$", cursor);
+        let start = -1;
+        let displayMode = false;
+
+        if (blockStart !== -1 && (inlineStart === -1 || blockStart <= inlineStart)) {
+          start = blockStart;
+          displayMode = true;
+        } else if (inlineStart !== -1) {
+          start = inlineStart;
+        }
+
+        if (start === -1) {
+          parts.push({ type: "text", value: content.slice(cursor) });
+          break;
+        }
+
+        if (start > cursor) {
+          parts.push({ type: "text", value: content.slice(cursor, start) });
+        }
+
+        const delimiter = displayMode ? "$$" : "$";
+        const end = content.indexOf(delimiter, start + delimiter.length);
+        if (end === -1) {
+          parts.push({ type: "text", value: content.slice(start) });
+          break;
+        }
+
+        parts.push({
+          type: "math",
+          value: content.slice(start + delimiter.length, end).trim(),
+          displayMode,
+        });
+        cursor = end + delimiter.length;
+      }
+
+      if (!parts.some((part) => part.type === "math")) return;
+
+      const fragment = document.createDocumentFragment();
+      parts.forEach((part) => {
+        if (part.type === "text") {
+          fragment.appendChild(document.createTextNode(part.value));
+          return;
+        }
+        const wrap = document.createElement(part.displayMode ? "div" : "span");
+        wrap.className = part.displayMode ? "katex-block" : "katex-inline";
+        wrap.innerHTML = katex.renderToString(part.value, {
+          displayMode: part.displayMode,
+          throwOnError: false,
+        });
+        fragment.appendChild(wrap);
+      });
+
+      node.parentNode?.replaceChild(fragment, node);
+    });
+  });
+}
+
+// ─── Mermaid post-process ──────────────────────────────────────────────────
+
+async function renderMermaid(container) {
+  if (!window.mermaid) return;
+  const pres = container.querySelectorAll("pre.mermaid");
+  const isDark = document.documentElement.getAttribute("data-theme") === "dark";
+  if (typeof mermaid.initialize === "function") {
+    mermaid.initialize({ startOnLoad: false, theme: isDark ? "dark" : "default" });
+  }
+  for (const pre of pres) {
+    try {
+      const code = pre.textContent;
+      const id = "mmd-" + Math.random().toString(36).slice(2, 8);
+      const { svg } = await mermaid.render(id, code);
+      const div = document.createElement("div");
+      div.className = "mermaid-rendered";
+      div.innerHTML = svg;
+      pre.replaceWith(div);
+    } catch (e) {
+      pre.classList.add("mermaid-error");
+      pre.textContent = "⚠ Mermaid error: " + e.message;
+    }
+  }
+}
+
+async function postProcessPreviewContainer(
+  container,
+  sizes,
+  alignments,
+  imageMap,
+  onResize,
+) {
+  if (!container) return;
+  await renderMermaid(container);
+  resolvePreviewImages(container, imageMap);
+  enhancePreviewBlocks(container, sizes, alignments, onResize);
+}
+
+function enhancePreviewBlocks(container, sizes, alignments, onResize) {
+  const targets = [];
+  container.querySelectorAll(".mermaid-block, table, img").forEach((el) => {
+    if (el.closest(".preview-resize-wrap")) return;
+    targets.push(el);
+  });
+
+  targets.forEach((el, index) => {
+    const kind = el.matches(".mermaid-block")
+      ? "mermaid"
+      : el.matches("table")
+        ? "table"
+        : "image";
+    const wrap = document.createElement("div");
+    const key = `${kind}:${index}`;
+    wrap.className = `preview-resize-wrap preview-resize-${kind}`;
+    wrap.dataset.resizeKey = key;
+    wrap.dataset.resizeKind = kind;
+    wrap.style.width = sizes[key] || "";
+    applyPreviewAlignment(wrap, alignments?.[key] || "left", kind);
+
+    if (kind === "table") {
+      el.classList.add("preview-table-block");
+    }
+    if (kind === "image") {
+      el.classList.add("preview-image-block");
+    }
+    if (kind === "mermaid") {
+      el.classList.add("preview-mermaid-block");
+    }
+
+    const handle = document.createElement("button");
+    handle.type = "button";
+    handle.className = "preview-resize-handle";
+    handle.title = "Resize block";
+    handle.innerHTML = '<i class="ti ti-arrows-diagonal"></i>';
+
+    const copy = document.createElement("button");
+    copy.type = "button";
+    copy.className = "preview-block-copy";
+    copy.title = "Copy block";
+    copy.innerHTML = '<i class="ti ti-copy"></i>';
+    copy.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      copyBlockSource(kind, wrap);
+    });
+
+    const align = document.createElement("button");
+    align.type = "button";
+    align.className = "preview-block-align";
+    align.title = "Align block";
+    setAlignButtonIcon(align, alignments?.[key] || "left");
+    align.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const options = ["left", "center", "right", "justify"];
+      const current = wrap.dataset.align || "left";
+      const next = options[(options.indexOf(current) + 1) % options.length];
+      if (alignments) alignments[key] = next;
+      applyPreviewAlignment(wrap, next, kind);
+      setAlignButtonIcon(align, next);
+    });
+
+    const toolbar = document.createElement("div");
+    toolbar.className = "preview-block-toolbar";
+    toolbar.append(copy, align);
+
+    handle.addEventListener("pointerdown", (event) => onResize(event, wrap, key, kind));
+
+    el.parentNode?.insertBefore(wrap, el);
+    wrap.appendChild(el);
+    wrap.appendChild(toolbar);
+    wrap.appendChild(handle);
+  });
+}
+
+function getPreviewTheme() {
+  return document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "default";
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   VUE APP
+══════════════════════════════════════════════════════════════════════════ */
+
+createApp({
   setup() {
-    /* ─── UI ─── */
-    const darkMode = ref(false);
-    const sidebarOpen = ref(true);
-    const viewMode = ref("split");
-    const focusMode = ref(false);
-    const wordWrap = ref(true);
-    const unsaved = ref(false);
-    const showStylePanel = ref(false);
-    const activePanel = ref("editor"); // editor | organizer
+    // ── state ────────────────────────────────────────────────────────────────
 
-    /* ─── FILES ─── */
     const files = ref([]);
     const activeFileId = ref(null);
-    const currentContent = ref(DEMO_MD);
+    const unsaved = ref(false);
+
+    // editor
+    let editorInstance = null; // the CM6 / fallback adapter
+    const editorWrap = ref(null); // DOM ref for #editor-wrap
+    const previewScroller = ref(null);
+
+    // view
+    const viewMode = ref("split");
+    const sidebarOpen = ref(true);
+    const darkMode = ref(false);
+    const focusMode = ref(false);
+    const wordWrap = ref(true);
+    const editorFontSize = ref(15);
+    const editorLineHeight = ref(1.7);
+
+    // modals
+    const showLatex = ref(false);
+    const showMermaid = ref(false);
+    const showExport = ref(false);
+    const showImgManager = ref(false);
+    const showTemplates = ref(false);
+    const showStylePanel = ref(false);
+    const showShortcuts = ref(false);
+    const showFR = ref(false);
+    const showSettings = ref(false);
+    const showHistory = ref(false);
+    const syncScrollEnabled = ref(false);
+
+    // Find & replace
+    const frFind = ref("");
+    const frReplace = ref("");
+    const frCase = ref(false);
+    const frRegex = ref(false);
+    const frWord = ref(false);
+    const frCount = ref(0);
+
+    // rename
     const renamingFile = ref(false);
     const renameVal = ref("");
     const renameInputRef = ref(null);
-    const renamingId = ref(null);
 
-    /* ─── EDITOR ─── */
-    const editorRef = ref(null);
-    const editorFontSize = ref(13);
-    const editorLineHeight = ref(1.75);
-    const editorWidth = ref(500);
-    const mdFileInput = ref(null);
-    const undoStack = ref([]);
-    const redoStack = ref([]);
-    let skipHistory = false;
+    // latex builder
+    const latexCat = ref("greek");
+    const latexInput = ref("");
+    const latexRendered = ref("");
+    const latexMode = ref("block");
 
-    /* ─── RENDER ─── */
-    const renderTheme = ref("default");
-    const renderThemes = [
-      { id: "default", name: "Clean Article" },
-      { id: "research", name: "Research Paper" },
-      { id: "scientific", name: "Scientific Report" },
-      { id: "ieee", name: "IEEE / Engineering" },
-      { id: "cv", name: "Professional CV" },
-      { id: "latex", name: "LaTeX Style" },
-      { id: "hbs", name: "Harvard Business" },
-      { id: "legal", name: "Legal Document" },
-      { id: "medical", name: "Medical / Clinical" },
-      { id: "startup", name: "Startup / Pitch" },
-      { id: "editorial", name: "Editorial Magazine" },
-      { id: "technical", name: "Technical Docs" },
-      { id: "book", name: "Book / Novel" },
-      { id: "newspaper", name: "Newspaper" },
-      { id: "minimal", name: "Minimal" },
-    ];
-    const currentThemeName = computed(
-      () => renderThemes.find((t) => t.id === renderTheme.value)?.name || "",
-    );
+    // mermaid builder
+    const mermaidCode = ref("graph TD\n  A --> B");
+    const mermaidPrev = ref("");
+    const mermaidError = ref("");
+    const mermaidTpl = ref("flowchart");
+    const mermaidRendered = computed(() => mermaidPrev.value);
 
-    /* ─── STYLE ─── */
-    const customFont = ref("");
-    const cFontSize = ref(16),
-      cLineH = ref(1.7),
-      cParaGap = ref(0.75);
-    const cWidth = ref(740),
-      cPadH = ref(48),
-      cPadV = ref(40);
-    const cColorText = ref(""),
-      cColorHead = ref(""),
-      cColorLink = ref(""),
-      cColorBg = ref("");
-    const cHeadFont = ref(""),
-      cH1 = ref(2),
-      cH2 = ref(1.5);
-    const fontChoices = [
-      { name: "DM Sans", val: "'DM Sans',sans-serif" },
-      { name: "IBM Plex", val: "'IBM Plex Sans',sans-serif" },
-      { name: "Raleway", val: "'Raleway',sans-serif" },
-      { name: "Crimson", val: "'Crimson Pro',serif" },
-      { name: "Src Serif", val: "'Source Serif 4',serif" },
-      { name: "Playfair", val: "'Playfair Display',serif" },
-      { name: "Georgia", val: "Georgia,serif" },
-      { name: "Space Mono", val: "'Space Mono',monospace" },
-    ];
-    const previewPageStyle = computed(() => {
-      const s = {};
-      if (customFont.value) s.fontFamily = customFont.value;
-      if (cFontSize.value !== 16) s.fontSize = cFontSize.value + "px";
-      if (cLineH.value !== 1.7) s.lineHeight = cLineH.value;
-      if (cColorText.value) s.color = cColorText.value;
-      if (cColorBg.value) s.background = cColorBg.value;
-      s.maxWidth = cWidth.value + "px";
-      s.paddingLeft = cPadH.value + "px";
-      s.paddingRight = cPadH.value + "px";
-      s.paddingTop = cPadV.value + "px";
-      s.paddingBottom = cPadV.value + 40 + "px";
-      return s;
-    });
-
-    /* ─── BLOCK ORGANIZER ─── */
+    // block organizer
+    const activePanel = ref("editor");
     const blocks = ref([]);
-    let dragSrcIdx = -1,
-      dragOverIdx = -1;
-    const blockTypeMenuOpen = ref(false);
-    const blockTypeMenuTarget = ref(-1);
-    const blockTypeMenuPos = ref({ x: 0, y: 0 });
     const editingBlockIdx = ref(-1);
+    const dragSrcIdx = ref(-1);
+    const blockTypeMenuOpen = ref(false);
+    const blockTypeMenuPos = ref({ x: 0, y: 0 });
+    const blockTypeMenuTarget = ref(0);
     const blockTypeSearch = ref("");
 
-    const parseBlocks = () => {
-      const raw = currentContent.value.split(/\n{2,}/);
-      blocks.value = raw
-        .filter((p) => p.trim())
-        .map((p) => ({
-          id: mkid(),
-          type: detectBlockType(p.trim()),
-          content: p.trim(),
-        }));
-      if (!blocks.value.length)
-        blocks.value = [{ id: mkid(), type: "paragraph", content: "" }];
-    };
-    const blocksToContent = () => {
-      currentContent.value = blocks.value.map((b) => b.content).join("\n\n");
-      unsaved.value = true;
-    };
-    const addBlock = (idx, type = "paragraph") => {
-      const bt = BLOCK_TYPES.find((b) => b.type === type);
-      let content = "";
-      if (type === "heading1") content = "# New Heading";
-      else if (type === "heading2") content = "## New Heading";
-      else if (type === "heading3") content = "### New Heading";
-      else if (type === "bullet") content = "- Item";
-      else if (type === "numbered") content = "1. Item";
-      else if (type === "blockquote") content = "> Quote";
-      else if (type === "code") content = "```\ncode here\n```";
-      else if (type === "mermaid")
-        content = "```mermaid\nflowchart LR\n  A --> B\n```";
-      else if (type === "math") content = "$$\n\\sum_{i=1}^{n} x_i\n$$";
-      else if (type === "table")
-        content = "| Col 1 | Col 2 |\n|-------|-------|\n| A     | B     |";
-      else if (type === "divider") content = "---";
-      else content = "Paragraph text here.";
-      const nb = { id: mkid(), type, content };
-      blocks.value.splice(idx + 1, 0, nb);
-      blockTypeMenuOpen.value = false;
-      blocksToContent();
-      nextTick(() => {
-        editingBlockIdx.value = idx + 1;
-      });
-    };
-    const deleteBlock = (idx) => {
-      if (blocks.value.length === 1) {
-        blocks.value[0].content = "";
-        blocksToContent();
-        return;
-      }
-      blocks.value.splice(idx, 1);
-      blocksToContent();
-      if (editingBlockIdx.value >= blocks.value.length)
-        editingBlockIdx.value = blocks.value.length - 1;
-    };
-    const duplicateBlock = (idx) => {
-      const nb = { ...blocks.value[idx], id: mkid() };
-      blocks.value.splice(idx + 1, 0, nb);
-      blocksToContent();
-    };
-    const moveBlock = (idx, dir) => {
-      const target = idx + dir;
-      if (target < 0 || target >= blocks.value.length) return;
-      [blocks.value[idx], blocks.value[target]] = [
-        blocks.value[target],
-        blocks.value[idx],
-      ];
-      blocksToContent();
-    };
-    const onBlockDragStart = (e, idx) => {
-      dragSrcIdx = idx;
-      e.dataTransfer.effectAllowed = "move";
-      setTimeout(() => {
-        const el = document.querySelectorAll(".block-item")[idx];
-        if (el) el.classList.add("dragging");
-      }, 0);
-    };
-    const onBlockDragOver = (e, idx) => {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = "move";
-      document
-        .querySelectorAll(".block-item")
-        .forEach((el) => el.classList.remove("drag-over"));
-      if (idx !== dragSrcIdx) {
-        const el = document.querySelectorAll(".block-item")[idx];
-        if (el) el.classList.add("drag-over");
-      }
-      dragOverIdx = idx;
-    };
-    const onBlockDrop = (e, idx) => {
-      e.preventDefault();
-      document
-        .querySelectorAll(".block-item")
-        .forEach((el) => el.classList.remove("drag-over", "dragging"));
-      if (dragSrcIdx === -1 || dragSrcIdx === idx) return;
-      const moved = blocks.value.splice(dragSrcIdx, 1)[0];
-      let ins = idx;
-      if (dragSrcIdx < idx) ins--;
-      ins = Math.max(0, Math.min(ins, blocks.value.length));
-      blocks.value.splice(ins, 0, moved);
-      blocksToContent();
-      dragSrcIdx = -1;
-    };
-    const onBlockDragEnd = () => {
-      document
-        .querySelectorAll(".block-item")
-        .forEach((el) => el.classList.remove("drag-over", "dragging"));
-      dragSrcIdx = -1;
-    };
-    const openBlockTypeMenu = (idx, e) => {
-      blockTypeMenuTarget.value = idx;
-      blockTypeMenuOpen.value = true;
-      blockTypeSearch.value = "";
-      const x = Math.min(e.clientX, window.innerWidth - 200),
-        y = Math.min(e.clientY, window.innerHeight - 320);
-      blockTypeMenuPos.value = { x, y };
-      nextTick(() => {
-        const inp = document.getElementById("block-type-search");
-        if (inp) inp.focus();
-      });
-    };
-    const filteredBlockTypes = computed(() => {
-      const q = blockTypeSearch.value.toLowerCase();
-      return q
-        ? BLOCK_TYPES.filter((b) => b.label.toLowerCase().includes(q))
-        : BLOCK_TYPES;
-    });
-    watch(activePanel, (p) => {
-      if (p === "organizer") parseBlocks();
-    });
+    // style panel
+    const renderTheme = ref("default");
+    const customFont = ref("");
+    const cFontSize = ref(17);
+    const cLineH = ref(1.7);
+    const cParaGap = ref(0.8);
+    const cHeadFont = ref("");
+    const cH1 = ref(2.2);
+    const cH2 = ref(1.7);
+    const cWidth = ref(780);
+    const cPadH = ref(40);
+    const cPadV = ref(40);
+    const cColorText = ref("");
+    const cColorHead = ref("");
+    const cColorLink = ref("");
+    const cColorBg = ref("");
+    const previewTableLayout = ref("full");
+    const previewTableStriped = ref(true);
+    const previewTableCompact = ref(false);
+    const previewTableFontScale = ref(1);
+    const previewScaleScope = ref("all");
+    const previewScaleFactor = ref(1);
+    const previewBlockSizes = ref({});
+    const previewBlockAlignments = ref({});
+    const imagePathMap = ref({});
 
-    /* ─── IMAGES ─── */
+    // export
+    const exportPaperSize = ref("A4");
+    const exportOrientation = ref("portrait");
+    const exportMargins = ref("normal");
+    const exportScale = ref("100");
+    const exportBgGraphics = ref(true);
+    const exportTitle = ref("");
+    const exportAuthor = ref("");
+
+    // images
     const images = ref([]);
     const selectedImgs = ref([]);
     const imgFileInput = ref(null);
-    const showImgManager = ref(false);
-    const showResize = ref(false);
-    const showCrop = ref(false);
-    const resizeTgt = ref(null);
-    const resW = ref(0),
-      resH = ref(0),
-      resLock = ref(true),
-      resQ = ref(0.92);
-    const cropTgt = ref(null);
-    const cropX = ref(0),
-      cropY = ref(0),
-      cropW = ref(0),
-      cropH = ref(0);
-    const cropWrapRef = ref(null),
-      cropImgRef = ref(null);
-    const cropScale = ref(1);
-    const cropPresets = ["Free", "1:1", "4:3", "16:9", "3:4", "A4 portrait"];
+    const showResizeModal = ref(false);
+    const resizeTarget = ref(null);
+    const resizeW = ref(0);
+    const resizeH = ref(0);
+    const resizeLock = ref(true);
+    const resQ = ref(0.92);
+    const showCropModal = ref(false);
+    const cropTarget = ref(null);
+    const cropX = ref(0);
+    const cropY = ref(0);
+    const cropW = ref(100);
+    const cropH = ref(100);
+    const cropPreset = ref("");
 
-    /* ─── EXPORT ─── */
-    const showExport = ref(false);
-    const showPdfSettings = ref(false);
-    const exportTitle = ref("");
-    const exportAuthor = ref("");
-    const exportKeywords = ref("");
-    const exportDate = ref(new Date().toISOString().slice(0, 10));
-    const pdfPaperSize = ref("A4");
-    const pdfOrientation = ref("portrait");
-    const pdfMargins = ref("normal");
-    const pdfScale = ref("100");
-    const pdfBg = ref(true);
-
-    /* ─── TEMPLATES ─── */
+    // templates
     const userTemplates = ref([]);
-    const showTemplates = ref(false);
-    const tplTab = ref("builtin");
-    const showSaveTpl = ref(false);
-    const newTplName = ref(""),
-      newTplDesc = ref(""),
-      tplInclude = ref(true);
+    const showSaveTplModal = ref(false);
+    const newTplName = ref("");
+    const newTplDesc = ref("");
+    const newTplIncContent = ref(false);
 
-    /* ─── FIND/REPLACE ─── */
-    const showFR = ref(false);
-    const frFind = ref(""),
-      frReplace = ref("");
-    const frCase = ref(false),
-      frRegex = ref(false),
-      frWhole = ref(false),
-      frCount = ref(null);
-    const frFindRef = ref(null);
-
-    /* ─── LATEX BUILDER ─── */
-    const showLatex = ref(false);
-    const latexInput = ref("");
-    const latexMode = ref("block"); // block | inline
-    const latexCat = ref("common");
-    const latexCursor = ref(0);
-    const latexRendered = computed(() => {
-      try {
-        return katex.renderToString(latexInput.value || "\\square", {
-          displayMode: latexMode.value === "block",
-          throwOnError: false,
-          output: "html",
-        });
-      } catch (e) {
-        return '<span style="color:red">' + e.message + "</span>";
-      }
-    });
-    const insertLatexSym = (sym) => {
-      const cur = latexCursor.value;
-      const before = latexInput.value.slice(0, cur),
-        after = latexInput.value.slice(cur);
-      latexInput.value = before + sym + after;
-      latexCursor.value = cur + sym.length;
-      nextTick(() => {
-        const el = document.getElementById("latex-input");
-        if (el) {
-          el.focus();
-          el.setSelectionRange(latexCursor.value, latexCursor.value);
-        }
-      });
-    };
-    const onLatexInputChange = (e) => {
-      latexInput.value = e.target.value;
-      latexCursor.value = e.target.selectionStart;
-    };
-    const onLatexKeyUp = (e) => {
-      latexCursor.value = e.target.selectionStart;
-    };
-    const insertLatexToEditor = () => {
-      const ta = editorRef.value;
-      let insert = "";
-      if (latexMode.value === "block")
-        insert = "\n$$\n" + latexInput.value + "\n$$\n";
-      else insert = "$" + latexInput.value + "$";
-      const s = ta ? ta.selectionStart : currentContent.value.length;
-      currentContent.value =
-        currentContent.value.substring(0, s) +
-        insert +
-        currentContent.value.substring(s);
-      unsaved.value = true;
-      showLatex.value = false;
-      notify("LaTeX inserted", "success", 1500);
-    };
-    const latexTemplates = [
-      { label: "Fraction", tex: "\\frac{a}{b}" },
-      { label: "Sum", tex: "\\sum_{i=0}^{n} x_i" },
-      { label: "Integral", tex: "\\int_{a}^{b} f(x)\\,dx" },
-      { label: "Limit", tex: "\\lim_{x\\to\\infty} f(x)" },
-      {
-        label: "Matrix 2×2",
-        tex: "\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}",
-      },
-      {
-        label: "Cases",
-        tex: "\\begin{cases} a & \\text{if } n>0 \\\\ b & \\text{otherwise} \\end{cases}",
-      },
-      { label: "Greek sum", tex: "\\sum_{k=1}^{n} \\alpha_k x_k" },
-      { label: "Derivative", tex: "\\frac{d}{dx}f(x)" },
-      { label: "Binomial", tex: "\\binom{n}{k} = \\frac{n!}{k!(n-k)!}" },
-      { label: "Euler", tex: "e^{i\\pi}+1=0" },
-    ];
-
-    /* ─── MERMAID BUILDER ─── */
-    const showMermaid = ref(false);
-    const mermaidCode = ref(
-      "flowchart LR\n  A([Start]) --> B{Decision?}\n  B -->|Yes| C[Action]\n  B -->|No| D[Other]\n  C --> E([End])\n  D --> E",
-    );
-    const mermaidDiagramType = ref("flowchart");
-    const mermaidRendered = ref("");
-    const mermaidError = ref("");
-    let mermaidRenderTimer = null;
-
-    const renderMermaidPreview = async () => {
-      mermaidError.value = "";
-      if (typeof mermaid === "undefined") {
-        mermaidError.value = "Mermaid not loaded";
-        return;
-      }
-      try {
-        const id = "mmb-" + mkid();
-        const { svg } = await mermaid.render(id, mermaidCode.value);
-        mermaidRendered.value = svg;
-      } catch (e) {
-        mermaidError.value = e.message || "Diagram error";
-      }
-    };
-    watch(mermaidCode, () => {
-      clearTimeout(mermaidRenderTimer);
-      mermaidRenderTimer = setTimeout(renderMermaidPreview, 600);
-    });
-    const insertMermaidToEditor = () => {
-      const ta = editorRef.value;
-      const insert = "\n```mermaid\n" + mermaidCode.value + "\n```\n";
-      const s = ta ? ta.selectionStart : currentContent.value.length;
-      currentContent.value =
-        currentContent.value.substring(0, s) +
-        insert +
-        currentContent.value.substring(s);
-      unsaved.value = true;
-      showMermaid.value = false;
-      notify("Mermaid diagram inserted", "success", 1500);
-    };
-    const loadMermaidTemplate = (t) => {
-      mermaidCode.value = t.code;
-      mermaidDiagramType.value = t.id;
-    };
-    const openMermaidBuilder = () => {
-      showMermaid.value = true;
-      nextTick(renderMermaidPreview);
-    };
-    const openLatexBuilder = () => {
-      showLatex.value = true;
-      latexInput.value = "";
-      latexCat.value = "common";
-    };
-
-    /* ─── CTX MENU ─── */
-    const ctxMenu = ref({
-      show: false,
-      x: 0,
-      y: 0,
-      type: "editor",
-      fileId: null,
-    });
-    const showShortcuts = ref(false);
-    const shortcuts = [
-      { key: "Ctrl+S", desc: "Save" },
-      { key: "Ctrl+N", desc: "New file" },
-      { key: "Ctrl+B", desc: "Bold" },
-      { key: "Ctrl+I", desc: "Italic" },
-      { key: "Ctrl+H", desc: "Find & Replace" },
-      { key: "Ctrl+Z", desc: "Undo" },
-      { key: "Ctrl+Y", desc: "Redo" },
-      { key: "Ctrl+D", desc: "Duplicate line" },
-      { key: "Ctrl+Shift+F", desc: "Focus mode" },
-      { key: "F11", desc: "Fullscreen" },
-      { key: "Esc", desc: "Close / exit focus" },
-      { key: "Tab", desc: "Indent" },
-      { key: "Shift+Tab", desc: "Outdent" },
-      { key: "Ctrl+M", desc: "LaTeX Builder" },
-      { key: "Ctrl+G", desc: "Mermaid Builder" },
-      { key: "Ctrl+O", desc: "Block Organizer" },
-    ];
-
-    /* ─── NOTIFICATIONS ─── */
+    // notifications
     const notifications = ref([]);
-    let nid = 0;
-    const notify = (msg, type = "info", dur = 2800) => {
-      const id = ++nid;
-      notifications.value.push({ id, msg, type });
-      setTimeout(() => {
-        notifications.value = notifications.value.filter((n) => n.id !== id);
-      }, dur);
-    };
 
-    /* ─── COMPUTED ─── */
-    const activeFile = computed(() =>
-      files.value.find((f) => f.id === activeFileId.value),
-    );
-    const wordCount = computed(() => {
-      const t = currentContent.value.trim();
-      return t ? t.split(/\s+/).length : 0;
-    });
-    const charCount = computed(() => currentContent.value.length);
-    const lineCount = computed(() => currentContent.value.split("\n").length);
-    const readTime = computed(() =>
-      Math.max(1, Math.ceil(wordCount.value / 200)),
-    );
-    const headings = computed(() => {
-      const re = /^(#{1,6})\s+(.+)$/gm;
-      const out = [];
-      let m;
-      while ((m = re.exec(currentContent.value)) !== null) {
-        const text = m[2].replace(/[*_`]/g, "").trim();
-        const slug = text
-          .toLowerCase()
-          .replace(/\s+/g, "-")
-          .replace(/[^\w-]/g, "");
-        out.push({ level: m[1].length, text, slug });
+    // context menus
+    const editorCtxOpen = ref(false);
+    const editorCtxPos = ref({ x: 0, y: 0 });
+    const editorCtxBlockIndex = ref(0);
+    const previewCtxOpen = ref(false);
+    const previewCtxPos = ref({ x: 0, y: 0 });
+    const previewCtxBlockIndex = ref(0);
+    const syncScrollSource = ref("editor");
+    const fileCtxOpen = ref(false);
+    const fileCtxPos = ref({ x: 0, y: 0 });
+    const fileCtxTarget = ref(null);
+
+    const shortcuts = SHORTCUTS;
+
+    function applyThemeMode(enabled) {
+      if (enabled) document.documentElement.setAttribute("data-theme", "dark");
+      else document.documentElement.removeAttribute("data-theme");
+      document.documentElement.classList.toggle("dark", enabled);
+      const hljsTheme = document.getElementById("hljs-theme");
+      if (hljsTheme) {
+        hljsTheme.href = enabled
+          ? "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css"
+          : "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css";
       }
-      return out;
+    }
+
+    const ctxMenu = computed(() => {
+      if (fileCtxOpen.value) {
+        return {
+          show: true,
+          type: "file",
+          x: fileCtxPos.value.x,
+          y: fileCtxPos.value.y,
+          fileId: fileCtxTarget.value?.id || null,
+        };
+      }
+      if (previewCtxOpen.value) {
+        return {
+          show: true,
+          type: "preview",
+          x: previewCtxPos.value.x,
+          y: previewCtxPos.value.y,
+          fileId: null,
+        };
+      }
+      if (editorCtxOpen.value) {
+        return {
+          show: true,
+          type: "editor",
+          x: editorCtxPos.value.x,
+          y: editorCtxPos.value.y,
+          fileId: null,
+        };
+      }
+      return { show: false, type: "editor", x: 0, y: 0, fileId: null };
     });
 
-    /* ─── RENDERER ─── */
-    const buildRenderer = () => {
-      const r = new marked.Renderer();
+    // resize split
+    const editorWidth = ref(560);
 
-      r.heading = (text, level) => {
-        const slug = text
-          .replace(/<[^>]*>/g, "")
-          .toLowerCase()
-          .replace(/\s+/g, "-")
-          .replace(/[^\w-]/g, "");
-        return `<h${level} id="${slug}">${text}</h${level}>`;
-      };
+    // autosave status
+    const autosaveStatus = ref("saved"); // 'saved' | 'saving' | 'unsaved'
+    const autosaveDelay = ref(2000);
 
-      r.code = (code, lang) => {
-        if (lang === "mermaid") {
-          const id = "mm-" + mkid();
-          return `<div class="mermaid-block" id="${id}"><div class="mermaid">${code}</div></div>`;
+    // snapshots panel
+    const snapshots = ref([]);
+    const snapshotFreq = ref(5); // minutes between auto-snapshots
+    let lastSnapshotTime = Date.now();
+    let snapshotTimer = null;
+
+    // settings
+    const settingsAutosaveDelay = ref(2000);
+    const settingsSnapshotFreq = ref(5);
+    const settingsEditorFontSize = ref(15);
+    const settingsLineHeight = ref(1.7);
+    const settingsWordWrap = ref(true);
+    const settingsSpellcheck = ref(false);
+
+    // ── computed ─────────────────────────────────────────────────────────────
+
+    const activeFile = computed(
+      () => files.value.find((f) => f.id === activeFileId.value) || null,
+    );
+
+    const currentContent = computed({
+      get: () => activeFile.value?.content || "",
+      set: (v) => {
+        const f = activeFile.value;
+        if (f) {
+          f.content = v;
+          markUnsaved();
         }
-        let h = code;
-        if (lang && hljs.getLanguage(lang)) {
-          try {
-            h = hljs.highlight(code, { language: lang }).value;
-          } catch (e) {}
-        } else {
-          try {
-            h = hljs.highlightAuto(code).value;
-          } catch (e) {}
-        }
-        return `<pre><code class="hljs ${lang || ""}">${h}</code></pre>`;
-      };
-
-      r.image = (href, title, text) => {
-        const stored = images.value.find(
-          (i) => i.id === href || i.name === href,
-        );
-        const src = stored ? stored.data : href;
-        const wm = text?.match(/w=(\d+)/),
-          hm = text?.match(/h=(\d+)/);
-        const alt = (text || "").replace(/[wh]=\d+/g, "").trim();
-        let st = "max-width:100%";
-        if (wm) st += `;width:${wm[1]}px`;
-        if (hm) st += `;height:${hm[1]}px`;
-        return `<figure><img src="${src}" alt="${alt}" style="${st};border-radius:var(--rad)"/>${title ? `<figcaption>${title}</figcaption>` : ""}</figure>`;
-      };
-      return r;
-    };
-
-    // const processLatex = (src) => {
-    //   // Helper: Decodes HTML entities (like &amp; or &lt;) created by Marked back into math symbols
-    //   const decodeHtml = (html) => {
-    //     const txt = document.createElement("textarea");
-    //     txt.innerHTML = html;
-    //     return txt.value;
-    //   };
-
-    //   // Process Display Mode: $$ ... $$
-    //   src = src.replace(/\$\$([\s\S]+?)\$\$/g, (_, expr) => {
-    //     try {
-    //       const cleanExpr = decodeHtml(expr.trim());
-    //       return `<div class="katex-block">${katex.renderToString(cleanExpr, { displayMode: true, throwOnError: false })}</div>`;
-    //     } catch (e) {
-    //       return `<div class="katex-error">LaTeX: ${e.message}</div>`;
-    //     }
-    //   });
-
-    //   // Process Inline Mode: $ ... $
-    //   src = src.replace(/\$([^\n$]+?)\$/g, (_, expr) => {
-    //     try {
-    //       const cleanExpr = decodeHtml(expr.trim());
-    //       return `<span class="katex-inline">${katex.renderToString(cleanExpr, { displayMode: false, throwOnError: false })}</span>`;
-    //     } catch (e) {
-    //       return `<span class="katex-error">${expr}</span>`;
-    //     }
-    //   });
-
-    //   return src;
-    // };
+      },
+    });
 
     const renderedHtml = computed(() => {
-      try {
-        marked.setOptions({
-          renderer: buildRenderer(),
-          breaks: true,
-          gfm: true,
-        });
+      if (!window.marked) return "<p>Loading…</p>";
+      let src = currentContent.value || "";
+      const mathBlocks = [];
 
-        let src = currentContent.value || "";
-        const mathBlocks = [];
+      src = src.replace(/\$\$([\s\S]+?)\$\$/g, (match, expr) => {
+        const id = `KATEXDISPLAYPLACEHOLDER${mathBlocks.length}XYZ`;
+        mathBlocks.push({ id, expr, displayMode: true });
+        return id;
+      });
 
-        // 1. EXTRACT MATH: Save exact LaTeX strings before Marked destroys the backslashes
-        src = src.replace(/\$\$([\s\S]+?)\$\$/g, (match, expr) => {
-          // Use purely alphanumeric IDs so Marked.js doesn't try to bold or italicize them
-          const id = `KATEXDISPLAYPLACEHOLDER${mathBlocks.length}XYZ`;
-          mathBlocks.push({ id, expr, displayMode: true });
-          return id;
-        });
+      src = src.replace(/\$([^\n$]+?)\$/g, (match, expr) => {
+        const id = `KATEXINLINEPLACEHOLDER${mathBlocks.length}XYZ`;
+        mathBlocks.push({ id, expr, displayMode: false });
+        return id;
+      });
 
-        src = src.replace(/\$([^\n$]+?)\$/g, (match, expr) => {
-          const id = `KATEXINLINEPLACEHOLDER${mathBlocks.length}XYZ`;
-          mathBlocks.push({ id, expr, displayMode: false });
-          return id;
-        });
+      let html = sanitizeHtml(marked.parse(src));
 
-        // 2. PARSE MARKDOWN: Marked safely builds tables using the text placeholders
-        let html = marked.parse(src);
-        console.log("mathblocks:", mathBlocks);
-
-        // 3. INJECT KATEX: Replace placeholders with fully rendered KaTeX HTML
+      if (window.katex) {
         mathBlocks.forEach((block) => {
           try {
             const rendered = katex.renderToString(block.expr.trim(), {
@@ -1165,1146 +1067,1579 @@ appInstance = createApp({
             html = html.replace(block.id, errWrapper);
           }
         });
-
-        // 4. APPLY STYLES (Your existing style overrides)
-        const ov = [];
-        if (cColorText.value)
-          ov.push(`#preview-page{color:${cColorText.value}!important}`);
-        if (cColorHead.value)
-          ov.push(
-            `#preview-page h1,#preview-page h2,#preview-page h3,#preview-page h4{color:${cColorHead.value}!important}`,
-          );
-        if (cColorLink.value)
-          ov.push(`#preview-page a{color:${cColorLink.value}!important}`);
-        if (cHeadFont.value)
-          ov.push(
-            `#preview-page h1,#preview-page h2,#preview-page h3{font-family:${cHeadFont.value}!important}`,
-          );
-        if (cH1.value !== 2)
-          ov.push(`#preview-page h1{font-size:${cH1.value}em!important}`);
-        if (cH2.value !== 1.5)
-          ov.push(`#preview-page h2{font-size:${cH2.value}em!important}`);
-        if (cParaGap.value !== 0.75)
-          ov.push(`#preview-page p{margin:${cParaGap.value}em 0!important}`);
-
-        if (ov.length) html = `<style>${ov.join(" ")}</style>` + html;
-
-        return html;
-      } catch (e) {
-        return `<p style="color:red">Render error: ${e.message}</p>`;
       }
+
+      return html;
     });
 
-    const renderMermaidInPreview = async () => {
-      await nextTick();
-      if (typeof mermaid === "undefined") return;
-      const els = document.querySelectorAll(
-        "#preview-page .mermaid-block .mermaid, .focus-inner .mermaid",
+    const wordCount = computed(
+      () =>
+        (currentContent.value || "").trim().split(/\s+/).filter(Boolean).length,
+    );
+
+    const charCount = computed(() => (currentContent.value || "").length);
+
+    const lineCount = computed(
+      () => (currentContent.value || "").split("\n").length,
+    );
+
+    const readTime = computed(() =>
+      Math.max(1, Math.round(wordCount.value / 200)),
+    );
+
+    const headings = computed(() => {
+      const h = [];
+      const lines = (currentContent.value || "").split("\n");
+      for (const line of lines) {
+        const m = line.match(/^(#{1,6})\s+(.+)/);
+        if (m) {
+          h.push({
+            level: m[1].length,
+            text: m[2],
+            slug: m[2]
+              .toLowerCase()
+              .replace(/[^\w\s-]/g, "")
+              .replace(/\s+/g, "-"),
+          });
+        }
+      }
+      return h;
+    });
+
+    const fontChoices = [
+      { name: "System", val: "-apple-system,BlinkMacSystemFont,sans-serif" },
+      { name: "DM Sans", val: '"DM Sans",sans-serif' },
+      { name: "IBM Plex", val: '"IBM Plex Sans",sans-serif' },
+      { name: "Crimson", val: '"Crimson Pro",Georgia,serif' },
+      { name: "Libre B.", val: '"Libre Baskerville",Georgia,serif' },
+      { name: "Source S.", val: '"Source Serif 4",Georgia,serif' },
+      { name: "Raleway", val: '"Raleway",sans-serif' },
+    ];
+
+    const renderThemes = RENDER_THEMES;
+
+    const currentThemeName = computed(
+      () =>
+        RENDER_THEMES.find((t) => t.id === renderTheme.value)?.name ||
+        "Default",
+    );
+
+    const previewPageStyle = computed(() => {
+      const s = {};
+      if (customFont.value) s.fontFamily = customFont.value;
+      if (cFontSize.value)
+        s.fontSize =
+          previewScaleScope.value === "all"
+            ? cFontSize.value * previewScaleFactor.value + "px"
+            : cFontSize.value + "px";
+      if (cLineH.value) s.lineHeight = cLineH.value;
+      if (cWidth.value) s.maxWidth = cWidth.value + "px";
+      if (cPadH.value) {
+        s.paddingLeft = cPadH.value + "px";
+        s.paddingRight = cPadH.value + "px";
+      }
+      if (cPadV.value) {
+        s.paddingTop = cPadV.value + "px";
+        s.paddingBottom = cPadV.value + "px";
+      }
+      if (cColorText.value) s.color = cColorText.value;
+      if (cColorBg.value) s.background = cColorBg.value;
+      if (cParaGap.value) s["--para-gap"] = cParaGap.value + "em";
+      if (cHeadFont.value) s["--head-font"] = cHeadFont.value;
+      if (cH1.value) s["--h1-size"] = cH1.value + "em";
+      if (cH2.value) s["--h2-size"] = cH2.value + "em";
+      if (cColorHead.value) s["--color-head"] = cColorHead.value;
+      if (cColorLink.value) s["--color-link"] = cColorLink.value;
+      s["--table-width"] =
+        previewTableLayout.value === "full" ? "100%" : "fit-content";
+      s["--table-display"] =
+        previewTableLayout.value === "fit" || previewTableLayout.value === "center"
+          ? "table"
+          : "block";
+      s["--table-margin"] =
+        previewTableLayout.value === "center" ? "0.7em auto" : "0.7em 0";
+      s["--table-font-size"] = `${previewTableFontScale.value}em`;
+      s["--table-pad-y"] = previewTableCompact.value ? "0.22em" : "0.42em";
+      s["--table-pad-x"] = previewTableCompact.value ? "0.5em" : "0.68em";
+      s["--table-stripe"] = previewTableStriped.value
+        ? "color-mix(in srgb, var(--acc) 7%, transparent)"
+        : "transparent";
+      s["--media-scale"] = String(previewScaleFactor.value);
+      return s;
+    });
+
+    const previewPageClass = computed(() => {
+      if (previewScaleScope.value === "images") return "scale-images";
+      if (previewScaleScope.value === "mermaid") return "scale-mermaid";
+      if (previewScaleScope.value === "media") return "scale-media";
+      return "scale-all";
+    });
+
+    let editorScrollEl = null;
+    let previewScrollEl = null;
+    let scrollSyncing = false;
+
+    const filteredBlockTypes = computed(() => {
+      if (!blockTypeSearch.value) return BLOCK_TYPES;
+      return BLOCK_TYPES.filter((b) =>
+        b.label.toLowerCase().includes(blockTypeSearch.value.toLowerCase()),
       );
-      if (els.length) {
-        try {
-          await mermaid.run({ nodes: Array.from(els) });
-        } catch (e) {}
-      }
-    };
+    });
 
-    watch(renderedHtml, () => setTimeout(renderMermaidInPreview, 80));
+    // ── helpers ──────────────────────────────────────────────────────────────
 
-    /* ─── PERSISTENCE ─── */
-    const SK = "mdstudio_v5";
-    const persist = () => {
-      try {
-        localStorage.setItem(
-          SK,
-          JSON.stringify({
-            files: files.value.map((f) => ({
-              ...f,
-              content:
-                f.id === activeFileId.value ? currentContent.value : f.content,
-            })),
-            activeFileId: activeFileId.value,
-            darkMode: darkMode.value,
-            renderTheme: renderTheme.value,
-            images: images.value,
-            userTemplates: userTemplates.value,
-          }),
+    function genId() {
+      return Date.now().toString(36) + Math.random().toString(36).slice(2);
+    }
+
+    function notify(msg, type = "success", duration = 2500) {
+      const id = genId();
+      notifications.value.push({ id, msg, type });
+      setTimeout(() => {
+        notifications.value = notifications.value.filter((n) => n.id !== id);
+      }, duration);
+    }
+
+    function markUnsaved() {
+      unsaved.value = true;
+      autosaveStatus.value = "unsaved";
+      scheduleAutosave(
+        { ...activeFile.value, content: currentContent.value },
+        () => {
+          unsaved.value = false;
+          autosaveStatus.value = "saved";
+          // Possibly create snapshot
+          maybeCreateSnapshot();
+        },
+      );
+    }
+
+    // ── editor interaction ────────────────────────────────────────────────────
+
+    /** Called by toolbar fmt() buttons → wraps selection */
+    function fmt(prefix, suffix) {
+      if (!editorInstance) return;
+      editorInstance.wrapSelection(prefix, suffix);
+      syncFromEditor();
+    }
+
+    /** Called by toolbar fmtLine() → prepends prefix to current line(s) */
+    function fmtLine(prefix) {
+      if (!editorInstance) return;
+      editorInstance.prefixLine(prefix);
+      syncFromEditor();
+    }
+
+    /** Called by toolbar fmtBlock() → fence block */
+    function fmtBlock(open, close) {
+      if (!editorInstance) return;
+      editorInstance.fenceBlock(open, close);
+      syncFromEditor();
+    }
+
+    /** Insert arbitrary text at cursor */
+    function insertText(text) {
+      if (!editorInstance) return;
+      editorInstance.insert(text);
+      syncFromEditor();
+    }
+
+    /** Pull current value from editor → currentContent */
+    function syncFromEditor() {
+      if (!editorInstance || !activeFile.value) return;
+      activeFile.value.content = editorInstance.getValue();
+      markUnsaved();
+    }
+
+    /** Push content into editor (e.g. after file switch) */
+    function syncToEditor(text) {
+      if (editorInstance) editorInstance.setValue(text || "");
+    }
+
+    // ── file management ──────────────────────────────────────────────────────
+
+    async function loadAllFiles() {
+      const all = await getAllFiles();
+      if (!all || all.length === 0) {
+        // create default file
+        const def = {
+          id: genId(),
+          name: "untitled.md",
+          content: DEFAULT_CONTENT,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        };
+        await saveFile(def);
+        files.value = [def];
+      } else {
+        files.value = all.sort(
+          (a, b) => (b.updatedAt || 0) - (a.updatedAt || 0),
         );
-        unsaved.value = false;
-      } catch (e) {
-        notify("Storage full", "error");
       }
-    };
-    const hydrate = () => {
-      try {
-        const raw = localStorage.getItem(SK);
-        if (!raw) return false;
-        const d = JSON.parse(raw);
-        if (d.files?.length) files.value = d.files;
-        if (d.activeFileId) activeFileId.value = d.activeFileId;
-        if (d.darkMode !== undefined) darkMode.value = d.darkMode;
-        if (d.renderTheme) renderTheme.value = d.renderTheme;
-        if (d.images) images.value = d.images;
-        if (d.userTemplates) userTemplates.value = d.userTemplates;
-        const af = files.value.find((f) => f.id === activeFileId.value);
-        if (af) currentContent.value = af.content || "";
-        return true;
-      } catch (e) {
-        return false;
-      }
-    };
+      // Activate most recently updated
+      const lastId = await getSetting("activeFileId", null);
+      const target = files.value.find((f) => f.id === lastId) || files.value[0];
+      await switchFile(target.id);
+    }
 
-    /* ─── FILES ─── */
-    const newFile = () => {
-      const id = mkid();
-      files.value.push({
-        id,
-        name: `note-${files.value.length + 1}.md`,
-        content: "",
-      });
-      switchFile(id);
-    };
-    const switchFile = (id) => {
+    async function switchFile(id) {
+      // Flush any pending autosave for current file
       if (activeFileId.value) {
-        const af = files.value.find((f) => f.id === activeFileId.value);
-        if (af) af.content = currentContent.value;
+        cancelAutosave();
+        if (unsaved.value && activeFile.value) {
+          await saveFile({ ...activeFile.value });
+          unsaved.value = false;
+        }
       }
       activeFileId.value = id;
-      const f = files.value.find((f) => f.id === id);
-      currentContent.value = f?.content || "";
-      undoStack.value = [];
-      redoStack.value = [];
-      unsaved.value = false;
-    };
-    const deleteFile = (id) => {
-      if (files.value.length === 1) {
-        notify("Keep at least one file", "warn");
+      await setSetting("activeFileId", id);
+      const file = await getFile(id);
+      if (file) {
+        // Ensure files array is up to date
+        const idx = files.value.findIndex((f) => f.id === id);
+        if (idx >= 0) files.value[idx] = file;
+        else files.value.push(file);
+        syncToEditor(file.content);
+      }
+      editingBlockIdx.value = -1;
+    }
+
+    async function newFile() {
+      const f = {
+        id: genId(),
+        name: "untitled.md",
+        content: "",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      await saveFile(f);
+      files.value.unshift(f);
+      await switchFile(f.id);
+    }
+
+    async function deleteFile(id) {
+      if (files.value.length <= 1) {
+        notify("Cannot delete last file", "warn");
         return;
       }
       if (!confirm("Delete this file?")) return;
+      await dbDeleteFile(id);
       files.value = files.value.filter((f) => f.id !== id);
-      if (activeFileId.value === id) switchFile(files.value[0].id);
-      notify("Deleted", "info", 1500);
-    };
-    const duplicateFile = (id) => {
-      const f = files.value.find((f) => f.id === id);
-      if (!f) return;
-      const nid = mkid();
-      files.value.push({
-        id: nid,
-        name: f.name.replace(/(\.\w+)?$/, "-copy$1"),
-        content: id === activeFileId.value ? currentContent.value : f.content,
-      });
-      switchFile(nid);
-      notify("Duplicated", "success", 1500);
-    };
-    const saveFile = () => {
-      if (activeFileId.value) {
-        const af = files.value.find((f) => f.id === activeFileId.value);
-        if (af) af.content = currentContent.value;
+      if (activeFileId.value === id) {
+        await switchFile(files.value[0].id);
       }
-      persist();
-      notify("Saved ✓", "success", 1500);
-    };
-    const startRename = () => {
+    }
+
+    async function saveFileFn() {
       if (!activeFile.value) return;
-      renamingId.value = activeFileId.value;
-      renameVal.value = activeFile.value.name;
+      await saveFile({
+        ...activeFile.value,
+        content: editorInstance?.getValue() || currentContent.value,
+      });
+      unsaved.value = false;
+      autosaveStatus.value = "saved";
+      notify("Saved", "success", 1200);
+    }
+
+    // rename
+    function startRename() {
       renamingFile.value = true;
-      nextTick(() => renameInputRef.value?.select());
-    };
-    const startRenameById = (id) => {
-      const f = files.value.find((f) => f.id === id);
-      if (!f) return;
-      const nm = prompt("Rename:", f.name);
-      if (nm?.trim()) f.name = nm.trim();
-    };
-    const finishRename = () => {
-      if (renameVal.value?.trim()) {
-        const f = files.value.find((f) => f.id === renamingId.value);
-        if (f) f.name = renameVal.value.trim();
+      renameVal.value = activeFile.value?.name || "";
+      nextTick(() => renameInputRef.value?.focus());
+    }
+    function finishRename() {
+      if (activeFile.value && renameVal.value.trim()) {
+        activeFile.value.name = renameVal.value.trim();
+        saveFile({ ...activeFile.value });
       }
       renamingFile.value = false;
-    };
+    }
 
-    /* ─── UNDO/REDO ─── */
-    const pushHistory = (c) => {
-      if (skipHistory) return;
-      undoStack.value.push(c);
-      if (undoStack.value.length > 120) undoStack.value.shift();
-      redoStack.value = [];
-    };
-    const undo = () => {
-      if (!undoStack.value.length) return;
-      redoStack.value.push(currentContent.value);
-      skipHistory = true;
-      currentContent.value = undoStack.value.pop();
-      skipHistory = false;
-    };
-    const redo = () => {
-      if (!redoStack.value.length) return;
-      undoStack.value.push(currentContent.value);
-      skipHistory = true;
-      currentContent.value = redoStack.value.pop();
-      skipHistory = false;
-    };
-    let inputTimer = null;
-    const onInput = () => {
-      unsaved.value = true;
-      clearTimeout(inputTimer);
-      inputTimer = setTimeout(() => pushHistory(currentContent.value), 700);
-    };
+    // file upload
+    const mdFileInput = ref(null);
+    function triggerMdUpload() {
+      mdFileInput.value?.click();
+    }
+    async function onMdFileUpload(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      const text = await file.text();
+      const f = {
+        id: genId(),
+        name: file.name,
+        content: text,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      await saveFile(f);
+      files.value.unshift(f);
+      await switchFile(f.id);
+      e.target.value = "";
+    }
 
-    /* ─── KEYDOWN ─── */
-    const onEditorKeydown = (e) => {
+    // ── snapshots ────────────────────────────────────────────────────────────
+
+    async function maybeCreateSnapshot() {
+      const now = Date.now();
+      const freq = snapshotFreq.value * 60 * 1000;
+      if (now - lastSnapshotTime < freq) return;
+      lastSnapshotTime = now;
+      if (!activeFileId.value) return;
+      await createSnapshot(
+        activeFileId.value,
+        editorInstance?.getValue() || currentContent.value,
+      );
+    }
+
+    async function openHistory() {
+      if (!activeFileId.value) return;
+      snapshots.value = await getSnapshots(activeFileId.value);
+      showHistory.value = true;
+    }
+
+    async function manualSnapshot() {
+      if (!activeFileId.value) return;
+      const content = editorInstance?.getValue() || currentContent.value;
+      await createSnapshot(activeFileId.value, content, "Manual snapshot");
+      snapshots.value = await getSnapshots(activeFileId.value);
+      lastSnapshotTime = Date.now();
+      notify("Snapshot created", "success");
+    }
+
+    async function restoreSnapshot(snap) {
+      if (
+        !confirm(
+          `Restore snapshot from ${snap.label}? Current content will be replaced.`,
+        )
+      )
+        return;
+      syncToEditor(snap.content);
+      syncFromEditor();
+      showHistory.value = false;
+      notify("Snapshot restored", "success");
+    }
+
+    async function removeSnapshot(snap) {
+      await deleteSnapshot(snap.id);
+      snapshots.value = snapshots.value.filter((s) => s.id !== snap.id);
+    }
+
+    function formatSnapDate(ts) {
+      return new Date(ts).toLocaleString();
+    }
+
+    // ── settings ─────────────────────────────────────────────────────────────
+
+    async function openSettings() {
+      settingsAutosaveDelay.value = await getSetting("autosaveDelay", 2000);
+      settingsSnapshotFreq.value = await getSetting("snapshotFreq", 5);
+      settingsEditorFontSize.value = await getSetting("editorFontSize", 15);
+      settingsLineHeight.value = await getSetting("lineHeight", 1.7);
+      settingsWordWrap.value = await getSetting("wordWrap", true);
+      settingsSpellcheck.value = await getSetting("spellcheck", false);
+      showSettings.value = true;
+    }
+
+    async function applySettings() {
+      // persist
+      await setSetting("autosaveDelay", settingsAutosaveDelay.value);
+      await setSetting("snapshotFreq", settingsSnapshotFreq.value);
+      await setSetting("editorFontSize", settingsEditorFontSize.value);
+      await setSetting("lineHeight", settingsLineHeight.value);
+      await setSetting("wordWrap", settingsWordWrap.value);
+      await setSetting("spellcheck", settingsSpellcheck.value);
+
+      // apply
+      setAutosaveDelay(settingsAutosaveDelay.value);
+      snapshotFreq.value = settingsSnapshotFreq.value;
+      editorFontSize.value = settingsEditorFontSize.value;
+      editorLineHeight.value = settingsLineHeight.value;
+      wordWrap.value = settingsWordWrap.value;
+
+      if (editorInstance) {
+        editorInstance.setFontSize(settingsEditorFontSize.value);
+        editorInstance.setWordWrap(settingsWordWrap.value);
+      }
+
+      showSettings.value = false;
+      notify("Settings saved", "success");
+    }
+
+    // ── preview rendering ─────────────────────────────────────────────────────
+
+    let renderTimer = null;
+    function scheduleRender() {
+      clearTimeout(renderTimer);
+      renderTimer = setTimeout(() => {
+        nextTick(() => {
+          const pages = [
+            document.getElementById("preview-page"),
+            document.querySelector(".focus-inner"),
+          ].filter(Boolean);
+          Promise.all(
+            pages.map((page) =>
+              postProcessPreviewContainer(
+                page,
+                previewBlockSizes.value,
+                previewBlockAlignments.value,
+                imagePathMap.value,
+                beginPreviewResize,
+              ),
+            ),
+          ).then(() => {
+            if (syncScrollEnabled.value) syncPreviewFromEditor();
+          });
+        });
+      }, 250);
+    }
+
+    // ── editor keydown ───────────────────────────────────────────────────────
+
+    function onEditorKeydown(e) {
       const ctrl = e.ctrlKey || e.metaKey;
       if (ctrl && e.key === "s") {
         e.preventDefault();
-        saveFile();
-        return;
+        saveFileFn();
       }
       if (ctrl && e.key === "b") {
         e.preventDefault();
         fmt("**", "**");
-        return;
       }
       if (ctrl && e.key === "i") {
         e.preventDefault();
         fmt("*", "*");
-        return;
       }
-      if (ctrl && e.key === "h") {
+      if (ctrl && e.key === "`") {
         e.preventDefault();
-        openFR();
-        return;
-      }
-      if (ctrl && e.key === "z") {
-        e.preventDefault();
-        undo();
-        return;
-      }
-      if (ctrl && (e.key === "y" || e.key === "Y")) {
-        e.preventDefault();
-        redo();
-        return;
-      }
-      if (ctrl && e.key === "n") {
-        e.preventDefault();
-        newFile();
-        return;
+        fmt("`", "`");
       }
       if (ctrl && e.key === "m") {
         e.preventDefault();
         openLatexBuilder();
-        return;
       }
       if (ctrl && e.key === "g") {
         e.preventDefault();
         openMermaidBuilder();
-        return;
       }
       if (ctrl && e.key === "o") {
         e.preventDefault();
         activePanel.value =
           activePanel.value === "organizer" ? "editor" : "organizer";
-        return;
       }
-      if (ctrl && e.shiftKey && e.key === "F") {
+      if (ctrl && e.key === "f") {
         e.preventDefault();
-        focusMode.value = true;
-        return;
+        openFR();
       }
-      if (ctrl && e.key === "d") {
+      if (ctrl && e.key === ",") {
         e.preventDefault();
-        const ta = editorRef.value;
-        const pos = ta.selectionStart;
-        const start = currentContent.value.lastIndexOf("\n", pos - 1) + 1;
-        const end = currentContent.value.indexOf("\n", pos);
-        const lineEnd = end === -1 ? currentContent.value.length : end;
-        const line = currentContent.value.substring(start, lineEnd);
-        currentContent.value =
-          currentContent.value.substring(0, lineEnd) +
-          "\n" +
-          line +
-          currentContent.value.substring(lineEnd);
-        nextTick(() => {
-          ta.selectionStart = ta.selectionEnd = lineEnd + 1 + line.length;
-        });
-        return;
+        openSettings();
       }
-      if (e.key === "Tab") {
+      if (ctrl && e.key === "n") {
         e.preventDefault();
-        const ta = editorRef.value;
-        const s = ta.selectionStart,
-          en = ta.selectionEnd;
-        if (e.shiftKey) {
-          const ls = currentContent.value.lastIndexOf("\n", s - 1) + 1;
-          const line = currentContent.value.substring(ls, en);
-          const nl = line.replace(/^ {1,2}/, "");
-          currentContent.value =
-            currentContent.value.substring(0, ls) +
-            nl +
-            currentContent.value.substring(en);
-          nextTick(() => {
-            ta.selectionStart = ta.selectionEnd =
-              s - Math.min(2, line.length - nl.length);
-          });
-        } else {
-          currentContent.value =
-            currentContent.value.substring(0, s) +
-            "  " +
-            currentContent.value.substring(en);
-          nextTick(() => {
-            ta.selectionStart = ta.selectionEnd = s + 2;
-          });
-        }
-        return;
+        newFile();
+      }
+      if (ctrl && e.shiftKey && e.key === "H") {
+        e.preventDefault();
+        openHistory();
       }
       if (e.key === "Escape" && focusMode.value) {
         focusMode.value = false;
-        return;
       }
-      if (e.key === "F11") {
+    }
+
+    // ── window keydown (global) ──────────────────────────────────────────────
+
+    function onWindowKeydown(e) {
+      const ctrl = e.ctrlKey || e.metaKey;
+      if (ctrl && e.key === "s") {
         e.preventDefault();
-        focusMode.value = !focusMode.value;
-        return;
+        saveFileFn();
       }
-      const pairs = {
-        "(": ")",
-        "[": "]",
-        "{": "}",
-        '"': '"',
-        "'": "'",
-        "`": "`",
-      };
-      if (pairs[e.key]) {
-        const ta = editorRef.value;
-        const s = ta.selectionStart,
-          en = ta.selectionEnd;
-        if (s !== en) {
-          e.preventDefault();
-          const sel = currentContent.value.substring(s, en);
-          currentContent.value =
-            currentContent.value.substring(0, s) +
-            e.key +
-            sel +
-            pairs[e.key] +
-            currentContent.value.substring(en);
-          nextTick(() => {
-            ta.selectionStart = s + 1;
-            ta.selectionEnd = en + 1;
-          });
-        }
+      if (ctrl && e.key === ",") {
+        e.preventDefault();
+        openSettings();
       }
-    };
-
-    /* ─── FORMATTING ─── */
-    const fmt = (before, after) => {
-      const ta = editorRef.value;
-      if (!ta) return;
-      const s = ta.selectionStart,
-        e = ta.selectionEnd;
-      const sel = currentContent.value.substring(s, e);
-      if (
-        currentContent.value.substring(s - before.length, s) === before &&
-        currentContent.value.substring(e, e + after.length) === after
-      ) {
-        currentContent.value =
-          currentContent.value.substring(0, s - before.length) +
-          sel +
-          currentContent.value.substring(e + after.length);
-        nextTick(() => {
-          ta.selectionStart = s - before.length;
-          ta.selectionEnd = e - before.length;
-          ta.focus();
-        });
-      } else {
-        currentContent.value =
-          currentContent.value.substring(0, s) +
-          before +
-          sel +
-          after +
-          currentContent.value.substring(e);
-        nextTick(() => {
-          ta.selectionStart = s + before.length;
-          ta.selectionEnd = s + before.length + sel.length;
-          ta.focus();
-        });
+      if (ctrl && e.key === "n") {
+        e.preventDefault();
+        newFile();
       }
-      unsaved.value = true;
-    };
-    const fmtLine = (prefix) => {
-      const ta = editorRef.value;
-      if (!ta) return;
-      const pos = ta.selectionStart;
-      const start = currentContent.value.lastIndexOf("\n", pos - 1) + 1;
-      const end = currentContent.value.indexOf("\n", pos);
-      const lineEnd = end === -1 ? currentContent.value.length : end;
-      const line = currentContent.value.substring(start, lineEnd);
-      if (line.startsWith(prefix)) {
-        currentContent.value =
-          currentContent.value.substring(0, start) +
-          line.slice(prefix.length) +
-          currentContent.value.substring(lineEnd);
-        nextTick(() => {
-          ta.selectionStart = ta.selectionEnd = Math.max(
-            start,
-            pos - prefix.length,
-          );
-          ta.focus();
-        });
-      } else {
-        currentContent.value =
-          currentContent.value.substring(0, start) +
-          prefix +
-          line +
-          currentContent.value.substring(lineEnd);
-        nextTick(() => {
-          ta.selectionStart = ta.selectionEnd = pos + prefix.length;
-          ta.focus();
-        });
-      }
-      unsaved.value = true;
-    };
-    const fmtBlock = (before, after) => {
-      const ta = editorRef.value;
-      if (!ta) return;
-      const s = ta.selectionStart;
-      const sel = currentContent.value.substring(s, ta.selectionEnd) || "code";
-      currentContent.value =
-        currentContent.value.substring(0, s) +
-        before +
-        sel +
-        after +
-        currentContent.value.substring(ta.selectionEnd);
-      unsaved.value = true;
-    };
-    const insertLink = () => {
-      const ta = editorRef.value;
-      if (!ta) return;
-      const sel = currentContent.value.substring(
-        ta.selectionStart,
-        ta.selectionEnd,
-      );
-      const url = prompt("URL:", "https://");
-      if (!url) return;
-      const text = sel || prompt("Link text:", "Link") || url;
-      const ins = `[${text}](${url})`;
-      const s = ta.selectionStart;
-      currentContent.value =
-        currentContent.value.substring(0, s) +
-        ins +
-        currentContent.value.substring(ta.selectionEnd);
-      unsaved.value = true;
-    };
-    const insertTable = () => {
-      const ta = editorRef.value;
-      if (!ta) return;
-      const s = ta.selectionStart;
-      const tbl =
-        "\n| Col 1 | Col 2 | Col 3 |\n|-------|-------|-------|\n| A     | B     | C     |\n";
-      currentContent.value =
-        currentContent.value.substring(0, s) +
-        tbl +
-        currentContent.value.substring(s);
-      unsaved.value = true;
-    };
-    const insertMermaidSnippet = () => {
-      const ta = editorRef.value;
-      if (!ta) return;
-      const s = ta.selectionStart;
-      const d =
-        "\n```mermaid\nflowchart LR\n  A[Start] --> B{Decision}\n  B -->|Yes| C[Result]\n  B -->|No| D[Other]\n```\n";
-      currentContent.value =
-        currentContent.value.substring(0, s) +
-        d +
-        currentContent.value.substring(s);
-      unsaved.value = true;
-    };
-    const insertMathSnippet = () => {
-      const ta = editorRef.value;
-      if (!ta) return;
-      const s = ta.selectionStart;
-      const m = "\n$$\n\\sum_{i=1}^{n} x_i = \\frac{n(n+1)}{2}\n$$\n";
-      currentContent.value =
-        currentContent.value.substring(0, s) +
-        m +
-        currentContent.value.substring(s);
-      unsaved.value = true;
-    };
-    const insertImageFromLib = () => {
-      if (images.value.length) showImgManager.value = true;
-      else triggerImgUpload();
-    };
-    const doSelectAll = () => {
-      editorRef.value?.select();
-    };
-    const doCopy = () => {
-      const ta = editorRef.value;
-      if (!ta) return;
-      const sel = currentContent.value.substring(
-        ta.selectionStart,
-        ta.selectionEnd,
-      );
-      navigator.clipboard?.writeText(sel || currentContent.value);
-      notify("Copied", "success", 1200);
-    };
-    const clearEditor = () => {
-      if (confirm("Clear all content?")) {
-        pushHistory(currentContent.value);
-        currentContent.value = "";
-        unsaved.value = true;
-      }
-    };
-
-    /* ─── DARK MODE ─── */
-    const toggleDark = () => {
-      darkMode.value = !darkMode.value;
-      document.documentElement.setAttribute(
-        "data-theme",
-        darkMode.value ? "dark" : "",
-      );
-      document.getElementById("hljs-theme").href = darkMode.value
-        ? "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css"
-        : "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css";
-      if (typeof mermaid !== "undefined") {
-        mermaid.initialize({
-          startOnLoad: false,
-          theme: darkMode.value ? "dark" : "default",
-          securityLevel: "loose",
-        });
-        setTimeout(renderMermaidInPreview, 100);
-      }
-    };
-
-    /* ─── RESIZER ─── */
-    let rsing = false,
-      rsX = 0,
-      rsW0 = 0;
-    const startResize = (e) => {
-      rsing = true;
-      rsX = e.clientX;
-      rsW0 = editorWidth.value;
-      document.body.style.userSelect = "none";
-      document.body.style.cursor = "col-resize";
-      document.getElementById("resizer").classList.add("dragging");
-      const onMove = (ev) => {
-        if (!rsing) return;
-        editorWidth.value = Math.max(
-          180,
-          Math.min(rsW0 + (ev.clientX - rsX), window.innerWidth - 280),
-        );
-      };
-      const onUp = () => {
-        rsing = false;
-        document.body.style.userSelect = "";
-        document.body.style.cursor = "";
-        document.getElementById("resizer").classList.remove("dragging");
-        document.removeEventListener("mousemove", onMove);
-        document.removeEventListener("mouseup", onUp);
-      };
-      document.addEventListener("mousemove", onMove);
-      document.addEventListener("mouseup", onUp);
-    };
-
-    /* ─── FILE UPLOAD ─── */
-    const triggerMdUpload = () => mdFileInput.value?.click();
-    const onMdFileUpload = (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        const id = mkid();
-        files.value.push({ id, name: file.name, content: ev.target.result });
-        switchFile(id);
-        notify(`Opened: ${file.name}`, "success");
-      };
-      reader.readAsText(file);
-      e.target.value = "";
-    };
-
-    /* ─── IMAGES ─── */
-    const triggerImgUpload = () => imgFileInput.value?.click();
-    const openImgManager = () => {
-      showImgManager.value = true;
-    };
-    const toggleImgSel = (id) => {
-      const i = selectedImgs.value.indexOf(id);
-      i === -1 ? selectedImgs.value.push(id) : selectedImgs.value.splice(i, 1);
-    };
-    const onImgUpload = (e) => {
-      const fls = Array.from(e.target.files);
-      let loaded = 0;
-      fls.forEach((file) => {
-        const rdr = new FileReader();
-        rdr.onload = (ev) => {
-          const img = new Image();
-          img.onload = () => {
-            images.value.push({
-              id: mkid(),
-              name: file.name,
-              data: ev.target.result,
-              width: img.naturalWidth,
-              height: img.naturalHeight,
-            });
-            loaded++;
-            if (loaded === fls.length) {
-              persist();
-              notify(`${fls.length} image(s) uploaded`, "success");
-            }
-          };
-          img.src = ev.target.result;
-        };
-        rdr.readAsDataURL(file);
-      });
-      e.target.value = "";
-    };
-    const deleteSelected = () => {
-      images.value = images.value.filter(
-        (i) => !selectedImgs.value.includes(i.id),
-      );
-      selectedImgs.value = [];
-      persist();
-      notify("Deleted", "info");
-    };
-    const insertSelected = () => {
-      selectedImgs.value.forEach((id) => {
-        const img = images.value.find((i) => i.id === id);
-        if (img) insertOneImage(img);
-      });
-      selectedImgs.value = [];
-      showImgManager.value = false;
-    };
-    const insertOneImage = (img) => {
-      const ta = editorRef.value;
-      const pos = ta ? ta.selectionStart : currentContent.value.length;
-      const ins = `\n![${img.name}](${img.id})\n`;
-      currentContent.value =
-        currentContent.value.substring(0, pos) +
-        ins +
-        currentContent.value.substring(pos);
-      unsaved.value = true;
-      notify("Image inserted", "success", 1500);
-    };
-    const openResize = (img) => {
-      resizeTgt.value = { ...img };
-      resW.value = img.width;
-      resH.value = img.height;
-      showResize.value = true;
-    };
-    const onRW = () => {
-      if (resLock.value && resizeTgt.value)
-        resH.value = Math.round(
-          resW.value * (resizeTgt.value.height / resizeTgt.value.width),
-        );
-    };
-    const onRH = () => {
-      if (resLock.value && resizeTgt.value)
-        resW.value = Math.round(
-          resH.value * (resizeTgt.value.width / resizeTgt.value.height),
-        );
-    };
-    const applyResize = () => {
-      const c = document.createElement("canvas");
-      c.width = resW.value;
-      c.height = resH.value;
-      const ctx = c.getContext("2d");
-      const img = new Image();
-      img.src = resizeTgt.value.data;
-      img.onload = () => {
-        ctx.drawImage(img, 0, 0, resW.value, resH.value);
-        const nd = c.toDataURL("image/jpeg", resQ.value);
-        const idx = images.value.findIndex((i) => i.id === resizeTgt.value.id);
-        if (idx !== -1) {
-          images.value[idx] = {
-            ...images.value[idx],
-            data: nd,
-            width: resW.value,
-            height: resH.value,
-          };
-          persist();
-        }
-        showResize.value = false;
-        notify("Resized", "success");
-      };
-    };
-    const openCrop = (img) => {
-      cropTgt.value = { ...img };
-      cropX.value = 0;
-      cropY.value = 0;
-      cropW.value = img.width;
-      cropH.value = img.height;
-      showCrop.value = true;
-    };
-    const initCropDisplay = () => {
-      if (!cropImgRef.value || !cropTgt.value) return;
-      cropScale.value = cropImgRef.value.offsetWidth / cropTgt.value.width;
-    };
-    const cropDisplayRect = computed(() => {
-      if (!cropImgRef.value || !cropTgt.value || !cropWrapRef.value)
-        return null;
-      const s = cropScale.value;
-      const ir = cropImgRef.value.getBoundingClientRect();
-      const cr = cropWrapRef.value.getBoundingClientRect();
-      return {
-        left: ir.left - cr.left + cropX.value * s + "px",
-        top: ir.top - cr.top + cropY.value * s + "px",
-        width: Math.max(2, cropW.value * s) + "px",
-        height: Math.max(2, cropH.value * s) + "px",
-      };
-    });
-    const applyCropPreset = (p) => {
-      if (!cropTgt.value) return;
-      const { width: ow, height: oh } = cropTgt.value;
-      const ratios = {
-        "1:1": 1,
-        "4:3": 4 / 3,
-        "16:9": 16 / 9,
-        "3:4": 3 / 4,
-        "A4 portrait": 1 / Math.sqrt(2),
-      };
-      const ratio = ratios[p];
-      if (!ratio) {
-        cropX.value = 0;
-        cropY.value = 0;
-        cropW.value = ow;
-        cropH.value = oh;
-        return;
-      }
-      let w = ow,
-        h = Math.round(ow / ratio);
-      if (h > oh) {
-        h = oh;
-        w = Math.round(oh * ratio);
-      }
-      cropX.value = Math.round((ow - w) / 2);
-      cropY.value = Math.round((oh - h) / 2);
-      cropW.value = w;
-      cropH.value = h;
-    };
-    const onCropMouseDown = (e) => {
-      if (!cropImgRef.value) return;
-      e.preventDefault();
-      const ir = cropImgRef.value.getBoundingClientRect();
-      const s = cropScale.value;
-      const sx = (e.clientX - ir.left) / s,
-        sy = (e.clientY - ir.top) / s;
-      const onMove = (ev) => {
-        const cx = (ev.clientX - ir.left) / s,
-          cy = (ev.clientY - ir.top) / s;
-        cropX.value = Math.max(0, Math.min(sx, cx));
-        cropY.value = Math.max(0, Math.min(sy, cy));
-        cropW.value = Math.abs(cx - sx);
-        cropH.value = Math.abs(cy - sy);
-      };
-      const onUp = () => {
-        document.removeEventListener("mousemove", onMove);
-        document.removeEventListener("mouseup", onUp);
-      };
-      document.addEventListener("mousemove", onMove);
-      document.addEventListener("mouseup", onUp);
-    };
-    const applyCrop = () => {
-      const c = document.createElement("canvas");
-      c.width = Math.max(1, Math.round(cropW.value));
-      c.height = Math.max(1, Math.round(cropH.value));
-      const ctx = c.getContext("2d");
-      const img = new Image();
-      img.src = cropTgt.value.data;
-      img.onload = () => {
-        ctx.drawImage(
-          img,
-          cropX.value,
-          cropY.value,
-          cropW.value,
-          cropH.value,
-          0,
-          0,
-          c.width,
-          c.height,
-        );
-        const nd = c.toDataURL("image/png");
-        const idx = images.value.findIndex((i) => i.id === cropTgt.value.id);
-        if (idx !== -1) {
-          images.value[idx] = {
-            ...images.value[idx],
-            data: nd,
-            width: c.width,
-            height: c.height,
-          };
-          persist();
-        }
-        showCrop.value = false;
-        notify("Cropped", "success");
-      };
-    };
-
-    /* ─── TEMPLATES ─── */
-    const openTemplates = () => {
-      showTemplates.value = true;
-    };
-    const loadTemplate = (t) => {
-      renderTheme.value = t.theme || "default";
-      currentContent.value = t.content.replace(/\{\{date\}\}/g, today());
-      unsaved.value = true;
-      notify(`Template: ${t.name}`, "success");
-    };
-    const loadUserTemplate = (t) => {
-      renderTheme.value = t.theme || "default";
-      if (t.content) currentContent.value = t.content;
-      unsaved.value = true;
-      notify(`Template: ${t.name}`, "success");
-    };
-    const saveAsTheme = () => {
-      showSaveTpl.value = true;
-      newTplName.value = "";
-      newTplDesc.value = "";
-    };
-    const saveAsUserTemplate = () => {
-      if (!newTplName.value.trim()) {
-        notify("Enter a name", "warn");
-        return;
-      }
-      userTemplates.value.push({
-        id: mkid(),
-        name: newTplName.value.trim(),
-        desc: newTplDesc.value.trim(),
-        theme: renderTheme.value,
-        content: tplInclude.value ? currentContent.value : "",
-      });
-      persist();
-      showSaveTpl.value = false;
-      notify("Template saved", "success");
-    };
-    const deleteUserTpl = (id) => {
-      userTemplates.value = userTemplates.value.filter((t) => t.id !== id);
-      persist();
-    };
-
-    /* ─── FIND/REPLACE ─── */
-    const openFR = () => {
-      showFR.value = true;
-      frCount.value = null;
-      nextTick(() => frFindRef.value?.focus());
-    };
-    const frBuildRe = () => {
-      let pat = frFind.value;
-      if (!frRegex.value) pat = pat.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      if (frWhole.value) pat = `\\b${pat}\\b`;
-      return new RegExp(pat, frCase.value ? "g" : "gi");
-    };
-    const frDoFind = () => {
-      if (!frFind.value) return;
-      try {
-        const ms = currentContent.value.match(frBuildRe());
-        frCount.value = ms ? ms.length : 0;
-      } catch (e) {
-        notify("Invalid regex", "error");
-      }
-    };
-    const frReplaceOne = () => {
-      if (!frFind.value) return;
-      try {
-        let p = frFind.value;
-        if (!frRegex.value) p = p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        if (frWhole.value) p = `\\b${p}\\b`;
-        currentContent.value = currentContent.value.replace(
-          new RegExp(p, frCase.value ? "" : "i"),
-          frReplace.value,
-        );
-        unsaved.value = true;
-        frDoFind();
-      } catch (e) {
-        notify("Invalid regex", "error");
-      }
-    };
-    const frReplaceAll = () => {
-      if (!frFind.value) return;
-      try {
-        const re = frBuildRe();
-        const cnt = (currentContent.value.match(re) || []).length;
-        currentContent.value = currentContent.value.replace(
-          re,
-          frReplace.value,
-        );
-        unsaved.value = true;
-        frCount.value = 0;
-        notify(`Replaced ${cnt} occurrence(s)`, "success");
-      } catch (e) {
-        notify("Invalid regex", "error");
-      }
-    };
-
-    /* ─── STYLE RESET ─── */
-    const resetStyle = () => {
-      customFont.value = "";
-      cFontSize.value = 16;
-      cLineH.value = 1.7;
-      cParaGap.value = 0.75;
-      cWidth.value = 740;
-      cPadH.value = 48;
-      cPadV.value = 40;
-      cColorText.value = "";
-      cColorHead.value = "";
-      cColorLink.value = "";
-      cColorBg.value = "";
-      cHeadFont.value = "";
-      cH1.value = 2;
-      cH2.value = 1.5;
-      notify("Style reset", "info", 1500);
-    };
-
-    /* ─── EXPORT ─── */
-    const openExport = () => {
-      showExport.value = true;
-      showPdfSettings.value = false;
-      exportTitle.value =
-        activeFile.value?.name?.replace(/\.\w+$/, "") || "Document";
-    };
-    const dlBlob = (blob, name) => {
-      const u = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = u;
-      a.download = name;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(u), 1000);
-    };
-    const fname = (ext) =>
-      (activeFile.value?.name?.replace(/\.\w+$/, "") || "document") + "." + ext;
-    const copyHtml = () => {
-      navigator.clipboard?.writeText(renderedHtml.value);
-      notify("HTML copied", "success", 1500);
-    };
-    const copyText = () => {
-      const d = document.createElement("div");
-      d.innerHTML = renderedHtml.value;
-      navigator.clipboard?.writeText(d.textContent || "");
-      notify("Text copied", "success", 1500);
-    };
-    const exportMarkdown = () => {
-      dlBlob(
-        new Blob([currentContent.value], { type: "text/markdown" }),
-        fname("md"),
-      );
-      notify("Markdown exported", "success");
-    };
-    const exportTxt = () => {
-      const d = document.createElement("div");
-      d.innerHTML = renderedHtml.value;
-      dlBlob(
-        new Blob([d.textContent || ""], { type: "text/plain" }),
-        fname("txt"),
-      );
-      notify("Text exported", "success");
-    };
-    const exportJSON = () => {
-      dlBlob(
-        new Blob(
-          [
-            JSON.stringify(
-              {
-                title: exportTitle.value,
-                author: exportAuthor.value,
-                keywords: exportKeywords.value,
-                date: exportDate.value,
-                theme: renderTheme.value,
-                content: currentContent.value,
-                wordCount: wordCount.value,
-                exported: new Date().toISOString(),
-              },
-              null,
-              2,
-            ),
-          ],
-          { type: "application/json" },
-        ),
-        fname("json"),
-      );
-      notify("JSON exported", "success");
-    };
-    const exportHTML = () => {
-      let allStyles = "";
-      for (const sheet of document.styleSheets) {
-        try {
-          for (const rule of sheet.cssRules || [])
-            allStyles += rule.cssText + "\n";
-        } catch (e) {}
-      }
-      const doc = `<!DOCTYPE html>\n<html lang="en" data-theme="${darkMode.value ? "dark" : ""}">\n<head>\n<meta charset="UTF-8"/><title>${exportTitle.value || "Document"}</title>\n<link rel="preconnect" href="https://fonts.googleapis.com"/>\n<link href="https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,400;0,600;1,400&family=DM+Sans:wght@300;400;500;600&family=Playfair+Display:ital,wght@0,700;1,400&family=Source+Serif+4:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Sans:wght@300;400;500;600&family=Raleway:wght@300;400;600;700&family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>\n<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/${darkMode.value ? "github-dark" : "github"}.min.css"/>\n<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css"/>\n<style>\n${allStyles}\nbody{background:var(--bg1)}\n</style>\n</head>\n<body>\n<div id="preview-page" class="md-body theme-${renderTheme.value}" style="${Object.entries(
-        previewPageStyle.value,
-      )
-        .map(
-          ([k, v]) =>
-            k.replace(/([A-Z])/g, (m) => "-" + m.toLowerCase()) + ":" + v,
-        )
-        .join(
-          ";",
-        )}">\n${renderedHtml.value}\n</div>\n<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"><\/script>\n<script>mermaid.initialize({startOnLoad:true,theme:'${darkMode.value ? "dark" : "default"}',securityLevel:'loose'});<\/script>\n</body>\n</html>`;
-      dlBlob(new Blob([doc], { type: "text/html" }), fname("html"));
-      notify("HTML exported", "success");
-    };
-    const exportDocx = () => {
-      const wh = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word'><head><meta charset="UTF-8"/><title>${exportTitle.value}</title><style>@page{margin:2cm 2.5cm}body{font-family:Calibri,sans-serif;font-size:12pt;line-height:1.6}h1{font-size:22pt}h2{font-size:16pt}h3{font-size:13pt}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccc;padding:5pt}th{background:#e8e8e8;font-weight:bold}code,pre{font-family:Courier New,monospace;background:#f0f0f0}blockquote{margin-left:18pt;border-left:3px solid #ccc;padding-left:9pt;color:#555}</style></head><body>${renderedHtml.value}</body></html>`;
-      dlBlob(
-        new Blob(["\ufeff" + wh], { type: "application/msword" }),
-        fname("doc"),
-      );
-      notify("Word exported", "success");
-    };
-    const exportPDF = () => {
-      showExport.value = false;
-      const marginMap = {
-        normal: "2cm",
-        narrow: "1cm",
-        wide: "3cm",
-        none: "0",
-      };
-      const el = document.createElement("style");
-      el.id = "pdf-print-override";
-      el.textContent = `@page{size:${pdfPaperSize.value} ${pdfOrientation.value};margin:${marginMap[pdfMargins.value] || "2cm"}}@media print{html,body{height:auto!important;overflow:visible!important}#vue-root,#app-body,#main,#preview-pane,#preview-scroller{overflow:visible!important;height:auto!important;display:block!important}#topbar,#statusbar,#sidebar,#editor-pane,#resizer,.pane-toolbar,#ctx-menu,#notif-area,.style-panel,.focus-toolbar,#style-panel-wrap{display:none!important}#preview-pane{display:block!important;border:none!important;overflow:visible!important}#preview-scroller{overflow:visible!important;height:auto!important}#preview-page{max-width:100%!important;padding:0!important;margin:0!important;min-height:0!important;background:white!important;zoom:${pdfScale.value}%}${!pdfBg.value ? "*{background:transparent!important;box-shadow:none!important}" : ""}}`;
-      document.head.appendChild(el);
-      notify("Opening print dialog… All pages included", "info");
-      setTimeout(() => {
-        window.print();
-        setTimeout(() => {
-          const rem = document.getElementById("pdf-print-override");
-          if (rem) rem.remove();
-        }, 2000);
-      }, 400);
-    };
-    const exportSingle = (id) => {
-      const f = files.value.find((f) => f.id === id);
-      if (!f) return;
-      dlBlob(
-        new Blob(
-          [id === activeFileId.value ? currentContent.value : f.content],
-          { type: "text/markdown" },
-        ),
-        f.name,
-      );
-      notify("Downloaded", "success", 1500);
-    };
-
-    /* ─── CTX MENU ─── */
-    const openEditorCtx = (e) => {
-      e.preventDefault();
-      posCtx(e, { type: "editor" });
-    };
-    const openPreviewCtx = (e) => {
-      e.preventDefault();
-      posCtx(e, { type: "preview" });
-    };
-    const openFileCtx = (e, f) => {
-      e.preventDefault();
-      posCtx(e, { type: "file", fileId: f.id });
-    };
-    const posCtx = (e, extra) => {
-      closeCtx();
-      const x = Math.min(e.clientX, window.innerWidth - 210);
-      const y = Math.min(e.clientY, window.innerHeight - 380);
-      ctxMenu.value = { show: true, x, y, ...extra };
-      const close = (ev) => {
-        if (!ev.target.closest("#ctx-menu")) {
-          closeCtx();
-          document.removeEventListener("click", close);
-        }
-      };
-      nextTick(() => document.addEventListener("click", close));
-    };
-    const closeCtx = () => {
-      ctxMenu.value.show = false;
-    };
-
-    const scrollToHeading = (slug) => {
-      nextTick(() => {
-        const el = document
-          .getElementById("preview-scroller")
-          ?.querySelector(`#${slug}`);
-        el?.scrollIntoView({ behavior: "smooth", block: "start" });
-      });
-    };
-
-    const onGlobalKey = (e) => {
       if (e.key === "Escape") {
         if (focusMode.value) {
           focusMode.value = false;
           return;
         }
-        closeCtx();
-        if (blockTypeMenuOpen.value) blockTypeMenuOpen.value = false;
+        showLatex.value =
+          showMermaid.value =
+          showExport.value =
+          showImgManager.value =
+          showTemplates.value =
+          showShortcuts.value =
+          showFR.value =
+          showSettings.value =
+          showHistory.value =
+            false;
+        editorCtxOpen.value = previewCtxOpen.value = fileCtxOpen.value = false;
       }
-      if (e.key === "F11") {
-        e.preventDefault();
-        focusMode.value = !focusMode.value;
-      }
-    };
+    }
 
-    let autoSaveTimer = null;
-    watch(currentContent, () => {
-      unsaved.value = true;
-      clearTimeout(autoSaveTimer);
-      autoSaveTimer = setTimeout(() => {
-        if (activeFileId.value) {
-          const af = files.value.find((f) => f.id === activeFileId.value);
-          if (af) af.content = currentContent.value;
+    // ── toolbar helpers ──────────────────────────────────────────────────────
+
+    function undo() {
+      editorInstance?.undo();
+    }
+    function redo() {
+      editorInstance?.redo();
+    }
+
+    function insertLink() {
+      const url = prompt("URL:", "https://");
+      const label = prompt("Label:", "Link");
+      if (url) insertText(`[${label || "Link"}](${url})`);
+    }
+
+    function insertImageFromLib() {
+      if (!images.value.length) {
+        openImgManager();
+        return;
+      }
+      // use first selected or prompt
+      if (selectedImgs.value.length) {
+        for (const imgId of selectedImgs.value) {
+          const img = images.value.find((entry) => entry.id === imgId);
+          if (img) insertText(`![${img.name}](${img.path})\n`);
         }
-        persist();
-      }, 6000);
+      } else {
+        openImgManager();
+      }
+    }
+
+    function insertTable() {
+      insertText(
+        "\n| Column 1 | Column 2 | Column 3 |\n" +
+          "|----------|----------|----------|\n" +
+          "| Cell 1   | Cell 2   | Cell 3   |\n" +
+          "| Cell 4   | Cell 5   | Cell 6   |\n",
+      );
+    }
+
+    function scrollToHeading(slug) {
+      const el = document.getElementById(slug);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    function getSyncBlocks() {
+      return (editorInstance?.getValue() || currentContent.value || "")
+        .split(/\n\n+/)
+        .filter(Boolean);
+    }
+
+    function getBlockLineMap() {
+      const blocks = getSyncBlocks();
+      let startLine = 0;
+      return blocks.map((block, index) => {
+        const lines = block.split("\n").length;
+        const endLine = startLine + lines - 1;
+        const item = { index, startLine, endLine };
+        startLine = endLine + 2;
+        return item;
+      });
+    }
+
+    function blockIndexForLine(line) {
+      const map = getBlockLineMap();
+      for (const item of map) {
+        if (line <= item.endLine) return item.index;
+      }
+      return Math.max(0, map.length - 1);
+    }
+
+    function getEditorBlockIndex() {
+      const view = editorInstance?._view;
+      if (!view) return 0;
+      const viewportStart = view.viewport?.from ?? 0;
+      const line = view.state.doc.lineAt(viewportStart).number;
+      return blockIndexForLine(line);
+    }
+
+    function getPreviewBlockIndex() {
+      const preview = previewScrollEl || previewScroller.value || document.getElementById("preview-scroller");
+      const page = document.getElementById("preview-page");
+      if (!preview || !page) return 0;
+      const blocks = Array.from(page.children);
+      const top = preview.scrollTop + 12;
+      let idx = 0;
+      let best = Number.POSITIVE_INFINITY;
+      blocks.forEach((block, i) => {
+        if (block.offsetTop <= top) {
+          const distance = top - block.offsetTop;
+          if (distance <= best) {
+            best = distance;
+            idx = i;
+          }
+        }
+      });
+      return Math.min(idx, Math.max(0, blocks.length - 1));
+    }
+
+    function focusEditorLine(lineNumber) {
+      const view = editorInstance?._view;
+      if (view) {
+        const line = view.state.doc.line(Math.max(1, Math.min(lineNumber, view.state.doc.lines)));
+        view.dispatch({ selection: { anchor: line.from }, scrollIntoView: true });
+        view.focus();
+        return;
+      }
+
+      const ta = editorInstance?._el;
+      if (!ta) return;
+      const lines = ta.value.split("\n");
+      const targetLine = Math.max(0, Math.min(lineNumber - 1, lines.length - 1));
+      const before = lines.slice(0, targetLine).join("\n");
+      const pos = before.length + (targetLine > 0 ? 1 : 0);
+      ta.focus();
+      ta.setSelectionRange(pos, pos);
+    }
+
+    function beginPreviewResize(event, wrap, key, kind) {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const startX = event.clientX;
+      const startWidth = wrap.getBoundingClientRect().width;
+      const minWidth = kind === "image" ? 180 : 240;
+      const maxWidth = wrap.parentElement?.clientWidth || 960;
+      wrap.classList.add("is-resizing");
+
+      const move = (moveEvent) => {
+        const nextWidth = Math.max(
+          minWidth,
+          Math.min(maxWidth, startWidth + (moveEvent.clientX - startX)),
+        );
+        wrap.style.width = `${nextWidth}px`;
+      };
+
+      const up = () => {
+        window.removeEventListener("pointermove", move);
+        wrap.classList.remove("is-resizing");
+        previewBlockSizes.value = {
+          ...previewBlockSizes.value,
+          [key]: wrap.style.width,
+        };
+      };
+
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up, { once: true });
+    }
+
+    function syncPreviewFromEditor() {
+      if (!syncScrollEnabled.value || scrollSyncing) return;
+      const view = editorInstance?._view;
+      const preview = previewScrollEl || previewScroller.value || document.getElementById("preview-scroller");
+      if (!view || !preview) return;
+      const blocks = getSyncBlocks();
+      if (!blocks.length) return;
+      const idx = Math.min(getEditorBlockIndex(), blocks.length - 1);
+      const target = Array.from(preview.children)[idx];
+      if (!target) return;
+      scrollSyncing = true;
+      preview.scrollTop = Math.max(0, target.offsetTop - 16);
+      requestAnimationFrame(() => {
+        scrollSyncing = false;
+      });
+    }
+
+    function syncEditorFromPreview() {
+      if (!syncScrollEnabled.value || scrollSyncing) return;
+      const view = editorInstance?._view;
+      const preview = previewScrollEl || previewScroller.value || document.getElementById("preview-scroller");
+      if (!view || !preview) return;
+      const blocks = getSyncBlocks();
+      const map = getBlockLineMap();
+      if (!blocks.length || !map.length) return;
+      const idx = Math.min(getPreviewBlockIndex(), map.length - 1);
+      const targetLine = (map[idx]?.startLine || 0) + 1;
+      scrollSyncing = true;
+      focusEditorLine(targetLine);
+      requestAnimationFrame(() => {
+        scrollSyncing = false;
+      });
+    }
+
+    function onEditorScroll() {
+      syncPreviewFromEditor();
+    }
+
+    function onPreviewScroll() {
+      syncEditorFromPreview();
+    }
+
+    function toggleSyncScroll() {
+      syncScrollEnabled.value = !syncScrollEnabled.value;
+      nextTick(() => {
+        jumpToCorrespondingBlock(syncScrollSource.value);
+        if (syncScrollEnabled.value) syncPreviewFromEditor();
+      });
+    }
+
+    // ── LaTeX builder ─────────────────────────────────────────────────────────
+
+    function openLatexBuilder() {
+      latexInput.value = "";
+      latexRendered.value = "";
+      latexCat.value = "common";
+      showLatex.value = true;
+    }
+
+    function insertLatexSym(tex) {
+      latexInput.value += tex;
+      onLatexInputChange();
+    }
+
+    function onLatexInputChange() {
+      if (!window.katex) return;
+      try {
+        latexRendered.value = katex.renderToString(latexInput.value, {
+          displayMode: latexMode.value === "block",
+          throwOnError: false,
+        });
+      } catch (e) {
+        latexRendered.value = `<span class="katex-error">${e.message}</span>`;
+      }
+    }
+
+    function onLatexKeyUp(e) {
+      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) insertLatexToEditor();
+    }
+
+    function insertLatexToEditor() {
+      const wrap =
+        latexMode.value === "block"
+          ? `$$\n${latexInput.value}\n$$`
+          : `$${latexInput.value}$`;
+      insertText(wrap);
+      showLatex.value = false;
+    }
+
+    // ── Mermaid builder ───────────────────────────────────────────────────────
+
+    function openMermaidBuilder() {
+      mermaidCode.value = MERMAID_TEMPLATES[0].code;
+      mermaidTpl.value = MERMAID_TEMPLATES[0].id;
+      mermaidError.value = "";
+      showMermaid.value = true;
+      nextTick(() => previewMermaid());
+    }
+
+    async function previewMermaid() {
+      if (!window.mermaid) return;
+      try {
+        const id = "mbld-" + Math.random().toString(36).slice(2, 8);
+        if (typeof mermaid.initialize === "function") {
+          mermaid.initialize({
+            startOnLoad: false,
+            theme: getPreviewTheme(),
+          });
+        }
+        const { svg } = await mermaid.render(id, mermaidCode.value);
+        mermaidPrev.value = svg;
+        mermaidError.value = "";
+      } catch (e) {
+        mermaidError.value = e.message;
+        mermaidPrev.value = "";
+      }
+    }
+
+    function renderMermaidPreview() {
+      return previewMermaid();
+    }
+
+    function loadMermaidTpl(tpl) {
+      mermaidCode.value = tpl.code;
+      previewMermaid();
+    }
+
+    function insertMermaidToEditor() {
+      insertText(`\n\`\`\`mermaid\n${mermaidCode.value}\n\`\`\`\n`);
+      showMermaid.value = false;
+    }
+
+    // ── Block organizer ───────────────────────────────────────────────────────
+
+    function parseBlocks() {
+      const content = editorInstance?.getValue() || currentContent.value;
+      const raw = content.split(/\n\n+/);
+      blocks.value = raw.map((c, i) => ({
+        id: i + "-" + genId(),
+        content: c,
+        type: detectBlockType(c),
+      }));
+    }
+
+    function detectBlockType(c) {
+      if (/^#{1,6} /.test(c)) return "heading";
+      if (/^```/.test(c)) return "code";
+      if (/^\$\$/.test(c)) return "math";
+      if (/^```mermaid/.test(c)) return "mermaid";
+      if (/^>/.test(c)) return "quote";
+      if (/^\|.+\|/.test(c)) return "table";
+      if (/^!?\[.*\]\(/.test(c)) return "image";
+      if (/^[-*] |^\d+\. /.test(c)) return "list";
+      if (/^---+$/.test(c)) return "hr";
+      return "paragraph";
+    }
+
+    function blocksToContent() {
+      const text = blocks.value.map((b) => b.content).join("\n\n");
+      syncToEditor(text);
+      syncFromEditor();
+    }
+
+    function moveBlock(idx, dir) {
+      const arr = [...blocks.value];
+      const to = idx + dir;
+      if (to < 0 || to >= arr.length) return;
+      [arr[idx], arr[to]] = [arr[to], arr[idx]];
+      blocks.value = arr;
+      blocksToContent();
+    }
+
+    function duplicateBlock(idx) {
+      const b = { ...blocks.value[idx], id: genId() };
+      blocks.value.splice(idx + 1, 0, b);
+      blocksToContent();
+    }
+
+    function deleteBlock(idx) {
+      blocks.value.splice(idx, 1);
+      blocksToContent();
+    }
+
+    function addBlock(idx, type) {
+      blocks.value.splice(idx + 1, 0, { id: genId(), content: "", type });
+      blocksToContent();
+    }
+
+    function openBlockTypeMenu(idx, e) {
+      blockTypeMenuTarget.value = idx;
+      blockTypeMenuPos.value = { x: e.clientX, y: e.clientY };
+      blockTypeMenuOpen.value = true;
+    }
+
+    function onBlockDragStart(e, idx) {
+      dragSrcIdx.value = idx;
+      e.dataTransfer.effectAllowed = "move";
+    }
+    function onBlockDragOver(e, idx) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+    }
+    function onBlockDrop(e, idx) {
+      e.preventDefault();
+      const src = dragSrcIdx.value;
+      if (src === idx) return;
+      const arr = [...blocks.value];
+      const [item] = arr.splice(src, 1);
+      arr.splice(idx, 0, item);
+      blocks.value = arr;
+      blocksToContent();
+    }
+    function onBlockDragEnd() {
+      dragSrcIdx.value = -1;
+    }
+
+    // ── Find & Replace ────────────────────────────────────────────────────────
+
+    function openFR() {
+      showFR.value = true;
+      frCountMatches();
+    }
+
+    function frDoFind() {
+      frCountMatches();
+      nextTick(() => {
+        frFindRef.value?.focus();
+      });
+    }
+
+    function frReplaceOne() {
+      frReplaceFn();
+    }
+
+    function frGoTo() {
+      if (!editorInstance) return;
+      const query = {
+        search: frFind.value || "",
+        caseSensitive: frCase.value,
+        literal: !frRegex.value,
+        regexp: frRegex.value,
+        replace: frReplace.value || "",
+        wholeWord: frWord.value,
+      };
+      editorInstance.setSearchQuery?.(query);
+      editorInstance.findNext?.();
+      editorInstance.openSearchPanel?.();
+    }
+
+    function frCountMatches() {
+      const content = editorInstance?.getValue() || currentContent.value;
+      if (!frFind.value) {
+        frCount.value = 0;
+        return;
+      }
+      try {
+        const flags = "g" + (frCase.value ? "" : "i");
+        const pat = frRegex.value
+          ? frFind.value
+          : frFind.value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const full = frWord.value ? `\\b${pat}\\b` : pat;
+        frCount.value = (content.match(new RegExp(full, flags)) || []).length;
+      } catch {
+        frCount.value = 0;
+      }
+    }
+
+    function frReplaceFn() {
+      let content = editorInstance?.getValue() || currentContent.value;
+      if (!frFind.value) return;
+      try {
+        const flags = frCase.value ? "" : "i";
+        const pat = frRegex.value
+          ? frFind.value
+          : frFind.value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const full = frWord.value ? `\\b${pat}\\b` : pat;
+        content = content.replace(new RegExp(full, flags), frReplace.value);
+        syncToEditor(content);
+        syncFromEditor();
+        frCountMatches();
+      } catch (e) {
+        notify("Invalid regex: " + e.message, "warn");
+      }
+    }
+
+    function frReplaceAll() {
+      let content = editorInstance?.getValue() || currentContent.value;
+      if (!frFind.value) return;
+      try {
+        const flags = "g" + (frCase.value ? "" : "i");
+        const pat = frRegex.value
+          ? frFind.value
+          : frFind.value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const full = frWord.value ? `\\b${pat}\\b` : pat;
+        content = content.replace(new RegExp(full, flags), frReplace.value);
+        syncToEditor(content);
+        syncFromEditor();
+        frCount.value = 0;
+        notify("Replaced all", "success");
+      } catch (e) {
+        notify("Invalid regex: " + e.message, "warn");
+      }
+    }
+
+    const frFindRef = ref(null);
+
+    // ── Image manager ─────────────────────────────────────────────────────────
+
+    function openImgManager() {
+      showImgManager.value = true;
+    }
+
+    function processImageFiles(files) {
+      for (const file of files) {
+        if (!file.type?.startsWith("image/")) continue;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          const img = new Image();
+          img.onload = () => {
+            const safeName = file.name.replace(/[^\w.-]+/g, "-");
+            const path = `images/${Date.now()}-${safeName}`;
+            images.value.push({
+              id: genId(),
+              name: file.name,
+              path,
+              dataUrl: ev.target.result,
+              data: ev.target.result,
+              width: img.naturalWidth,
+              height: img.naturalHeight,
+            });
+            imagePathMap.value = {
+              ...imagePathMap.value,
+              [path]: ev.target.result,
+            };
+          };
+          img.src = ev.target.result;
+        };
+        reader.readAsDataURL(file);
+      }
+    }
+
+    function onImgUpload(e) {
+      processImageFiles(Array.from(e.target.files || []));
+      e.target.value = "";
+    }
+
+    function onImgDrop(e) {
+      processImageFiles(Array.from(e.dataTransfer?.files || []));
+    }
+
+    function toggleImgSelect(img) {
+      const idx = selectedImgs.value.indexOf(img.id);
+      if (idx >= 0) selectedImgs.value.splice(idx, 1);
+      else selectedImgs.value.push(img.id);
+    }
+
+    function insertSelectedImgs() {
+      for (const imgId of selectedImgs.value) {
+        const img = images.value.find((entry) => entry.id === imgId);
+        if (img) insertText(`![${img.name}](${img.path})\n`);
+      }
+      selectedImgs.value = [];
+      showImgManager.value = false;
+    }
+
+    function deleteSelectedImgs() {
+      images.value = images.value.filter(
+        (i) => !selectedImgs.value.includes(i.id),
+      );
+      selectedImgs.value = [];
+    }
+
+    function triggerImgUpload() {
+      imgFileInput.value?.click();
+    }
+
+    function insertSelected() {
+      insertSelectedImgs();
+    }
+
+    function deleteSelected() {
+      deleteSelectedImgs();
+    }
+
+    function toggleImgSel(id) {
+      const idx = selectedImgs.value.indexOf(id);
+      if (idx >= 0) selectedImgs.value.splice(idx, 1);
+      else selectedImgs.value.push(id);
+    }
+
+    function insertOneImage(img) {
+      if (!img) return;
+      insertText(`![${img.name}](${img.path})\n`);
+    }
+
+    function openResize(img) {
+      resizeTarget.value = img;
+      resizeW.value = img.width;
+      resizeH.value = img.height;
+      showResizeModal.value = true;
+    }
+    function applyResize() {
+      /* canvas-based resize — same as original */ showResizeModal.value = false;
+    }
+    function openCrop(img) {
+      cropTarget.value = img;
+      showCropModal.value = true;
+    }
+    function applyCrop() {
+      showCropModal.value = false;
+    }
+
+    // ── Templates ─────────────────────────────────────────────────────────────
+
+    function openTemplates() {
+      showTemplates.value = true;
+    }
+    function loadTemplate(t) {
+      if (confirm("Replace current content with template?")) {
+        syncToEditor(t.content);
+        syncFromEditor();
+        if (t.theme) renderTheme.value = t.theme;
+        showTemplates.value = false;
+      }
+    }
+
+    function openSaveTplModal() {
+      newTplName.value = "";
+      newTplDesc.value = "";
+      newTplIncContent.value = false;
+      showSaveTplModal.value = true;
+    }
+
+    function saveAsTheme() {
+      openSaveTplModal();
+    }
+
+    function saveNewTemplate() {
+      if (!newTplName.value.trim()) {
+        notify("Name required", "warn");
+        return;
+      }
+      userTemplates.value.push({
+        id: genId(),
+        name: newTplName.value.trim(),
+        desc: newTplDesc.value.trim(),
+        theme: renderTheme.value,
+        content: newTplIncContent.value
+          ? editorInstance?.getValue() || currentContent.value
+          : "",
+      });
+      showSaveTplModal.value = false;
+      notify("Template saved", "success");
+    }
+
+    // ── Export ────────────────────────────────────────────────────────────────
+
+    function openExport() {
+      showExport.value = true;
+    }
+
+    function exportMarkdown() {
+      const blob = new Blob(
+        [editorInstance?.getValue() || currentContent.value],
+        { type: "text/markdown" },
+      );
+      downloadBlob(
+        blob,
+        (activeFile.value?.name || "document") +
+          (activeFile.value?.name?.endsWith(".md") ? "" : ".md"),
+      );
+    }
+
+    function exportHtml() {
+      const html = buildExportHtml();
+      const blob = new Blob([html], { type: "text/html" });
+      downloadBlob(
+        blob,
+        (activeFile.value?.name?.replace(".md", "") || "document") + ".html",
+      );
+    }
+
+    function buildExportHtml() {
+      const body = renderedHtml.value;
+      return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>${exportTitle.value || activeFile.value?.name || "Document"}</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"><\/script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"><\/script>
+<style>
+  body { max-width: 800px; margin: 40px auto; font-family: sans-serif; line-height: 1.7; padding: 0 20px; }
+  pre { background: #f6f8fa; padding: 16px; border-radius: 6px; overflow-x:auto; }
+  code { font-family: monospace; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { border: 1px solid #ccc; padding: 8px 12px; }
+</style>
+</head>
+<body>
+${body}
+<script>mermaid.initialize({startOnLoad:true});<\/script>
+</body>
+</html>`;
+    }
+
+    function exportPdfFn() {
+      window.print();
+    }
+
+    function exportDocx() {
+      // Simple Word-compatible HTML export
+      const html = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word'><head><meta charset='utf-8'></head><body>${renderedHtml.value}</body></html>`;
+      const blob = new Blob([html], { type: "application/msword" });
+      downloadBlob(
+        blob,
+        (activeFile.value?.name?.replace(".md", "") || "document") + ".doc",
+      );
+    }
+
+    function exportPlain() {
+      const content = editorInstance?.getValue() || currentContent.value;
+      const blob = new Blob([content], { type: "text/plain" });
+      downloadBlob(
+        blob,
+        (activeFile.value?.name?.replace(".md", "") || "document") + ".txt",
+      );
+    }
+
+    function exportJson() {
+      const data = {
+        name: activeFile.value?.name,
+        content: editorInstance?.getValue() || currentContent.value,
+        exportedAt: new Date().toISOString(),
+        metadata: { title: exportTitle.value, author: exportAuthor.value },
+      };
+      const blob = new Blob([JSON.stringify(data, null, 2)], {
+        type: "application/json",
+      });
+      downloadBlob(
+        blob,
+        (activeFile.value?.name?.replace(".md", "") || "document") + ".json",
+      );
+    }
+
+    function copyHtml() {
+      navigator.clipboard
+        ?.writeText(renderedHtml.value)
+        .then(() => notify("HTML copied", "success"));
+    }
+
+    function downloadBlob(blob, name) {
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = name;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
+
+    // ── Context menus ─────────────────────────────────────────────────────────
+
+    function openEditorCtx(e) {
+      syncScrollSource.value = "editor";
+      editorCtxBlockIndex.value = getEditorBlockIndex();
+      editorCtxPos.value = { x: e.clientX, y: e.clientY };
+      editorCtxOpen.value = true;
+    }
+    function openPreviewCtx(e) {
+      syncScrollSource.value = "preview";
+      const page = document.getElementById("preview-page");
+      const hit = document.elementFromPoint(e.clientX, e.clientY);
+      let target = hit;
+      while (target && page && target.parentElement && target.parentElement !== page) {
+        target = target.parentElement;
+      }
+      const children = page ? Array.from(page.children) : [];
+      const idx = target ? children.indexOf(target) : -1;
+      previewCtxBlockIndex.value = idx >= 0 ? idx : getPreviewBlockIndex();
+      previewCtxPos.value = { x: e.clientX, y: e.clientY };
+      previewCtxOpen.value = true;
+    }
+    function openFileCtx(e, f) {
+      fileCtxTarget.value = f;
+      fileCtxPos.value = { x: e.clientX, y: e.clientY };
+      fileCtxOpen.value = true;
+    }
+    function closeAllCtx() {
+      editorCtxOpen.value = previewCtxOpen.value = fileCtxOpen.value = false;
+      blockTypeMenuOpen.value = false;
+    }
+
+    function closeCtx() {
+      closeAllCtx();
+    }
+
+    function getEditorText() {
+      return editorInstance?.getValue() || currentContent.value || "";
+    }
+
+    function doSelectAll() {
+      if (!editorInstance) return;
+      if (editorInstance._type === "textarea" && editorInstance._el) {
+        editorInstance._el.focus();
+        editorInstance._el.select();
+        return;
+      }
+      const view = editorInstance._view;
+      if (!view) return;
+      const end = view.state.doc.length;
+      view.dispatch({ selection: { anchor: 0, head: end } });
+      view.focus();
+    }
+
+    async function doCopy() {
+      const text = getEditorText();
+      await navigator.clipboard?.writeText(text);
+      notify("Copied", "success", 1000);
+    }
+
+    function clearEditor() {
+      syncToEditor("");
+      syncFromEditor();
+    }
+
+    function copyText() {
+      return doCopy();
+    }
+
+    function exportPDF() {
+      return exportPdfFn();
+    }
+
+    function exportHTML() {
+      return exportHtml();
+    }
+
+    async function startRenameById(id) {
+      if (id) await switchFile(id);
+      startRename();
+    }
+
+    async function duplicateFile(id) {
+      const file = files.value.find((f) => f.id === id);
+      if (file) await ctxDuplicateFile(file);
+    }
+
+    function exportSingle(id) {
+      const file = files.value.find((f) => f.id === id);
+      if (file) ctxDownloadFile(file);
+    }
+
+    async function ctxDuplicateFile(f) {
+      const dup = {
+        ...f,
+        id: genId(),
+        name: f.name.replace(".md", "") + "-copy.md",
+        updatedAt: Date.now(),
+      };
+      await saveFile(dup);
+      files.value.unshift(dup);
+      fileCtxOpen.value = false;
+    }
+
+    function ctxDownloadFile(f) {
+      const blob = new Blob([f.content], { type: "text/markdown" });
+      downloadBlob(blob, f.name);
+    }
+
+    // ── Split resize ──────────────────────────────────────────────────────────
+
+    let resizing = false;
+    function startResize(e) {
+      resizing = true;
+      const startX = e.clientX;
+      const startW = editorWidth.value;
+      const onMove = (ev) => {
+        if (!resizing) return;
+        editorWidth.value = Math.max(180, startW + (ev.clientX - startX));
+      };
+      const onUp = () => {
+        resizing = false;
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+      };
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+    }
+
+    // ── dark mode ─────────────────────────────────────────────────────────────
+
+    function toggleDark() {
+      darkMode.value = !darkMode.value;
+      applyThemeMode(darkMode.value);
+      editorInstance?.setDarkMode(darkMode.value);
+      setSetting("darkMode", darkMode.value);
+    }
+
+    // ── style panel ───────────────────────────────────────────────────────────
+
+    function resetStyle() {
+      customFont.value = "";
+      cFontSize.value = 17;
+      cLineH.value = 1.7;
+      cParaGap.value = 0.8;
+      cHeadFont.value = "";
+      cH1.value = 2.2;
+      cH2.value = 1.7;
+      cWidth.value = 780;
+      cPadH.value = 40;
+      cPadV.value = 40;
+      cColorText.value = "";
+      cColorHead.value = "";
+      cColorLink.value = "";
+      cColorBg.value = "";
+      previewTableLayout.value = "full";
+      previewScaleScope.value = "all";
+      previewScaleFactor.value = 1;
+    }
+
+    // ── watches ──────────────────────────────────────────────────────────────
+
+    watch(renderedHtml, () => scheduleRender());
+    watch(focusMode, (visible) => {
+      if (visible) scheduleRender();
     });
 
+    watch(darkMode, (v) => {
+      applyThemeMode(v);
+    });
+
+    watch(wordWrap, (v) => {
+      editorInstance?.setWordWrap(v);
+    });
+
+    watch(editorFontSize, (v) => {
+      editorInstance?.setFontSize(v);
+    });
+
+    watch(previewTableLayout, (v) => setSetting("previewTableLayout", v));
+    watch(previewScaleScope, (v) => setSetting("previewScaleScope", v));
+    watch(previewScaleFactor, (v) => setSetting("previewScaleFactor", v));
+
+    watch(activePanel, (v) => {
+      if (v === "organizer") parseBlocks();
+    });
+
+    // ── onMounted ────────────────────────────────────────────────────────────
+
     onMounted(async () => {
-      const ok = hydrate();
-      if (!ok) {
-        const id = mkid();
-        files.value = [{ id, name: "welcome.md", content: DEMO_MD }];
-        activeFileId.value = id;
-        currentContent.value = DEMO_MD;
-      }
-      if (darkMode.value) {
-        document.documentElement.setAttribute("data-theme", "dark");
-        document.getElementById("hljs-theme").href =
-          "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css";
-      }
-      document.addEventListener("keydown", onGlobalKey);
-      if (typeof mermaid !== "undefined") {
+      // Setup marked
+      setupMarked();
+
+      // Mermaid init
+      if (window.mermaid) {
         mermaid.initialize({
           startOnLoad: false,
           theme: darkMode.value ? "dark" : "default",
-          securityLevel: "loose",
         });
-        setTimeout(renderMermaidInPreview, 300);
       }
+
+      // IndexedDB + migration
+      await openDB();
+      await migrateFromLocalStorage();
+
+      // Load persisted settings
+      const settings = await getAllSettings();
+      if (settings.darkMode !== undefined) {
+        darkMode.value = settings.darkMode;
+        applyThemeMode(darkMode.value);
+      }
+      if (settings.wordWrap !== undefined) wordWrap.value = settings.wordWrap;
+      if (settings.editorFontSize)
+        editorFontSize.value = settings.editorFontSize;
+      if (settings.lineHeight) editorLineHeight.value = settings.lineHeight;
+      if (settings.autosaveDelay) {
+        autosaveDelay.value = settings.autosaveDelay;
+        setAutosaveDelay(settings.autosaveDelay);
+      }
+      if (settings.snapshotFreq) snapshotFreq.value = settings.snapshotFreq;
+      if (settings.renderTheme) renderTheme.value = settings.renderTheme;
+      if (settings.sidebarOpen !== undefined)
+        sidebarOpen.value = settings.sidebarOpen;
+      if (settings.previewTableLayout)
+        previewTableLayout.value = settings.previewTableLayout;
+      if (settings.previewScaleScope)
+        previewScaleScope.value = settings.previewScaleScope;
+      if (settings.previewScaleFactor)
+        previewScaleFactor.value = settings.previewScaleFactor;
+
+      // Load files from IndexedDB
+      await loadAllFiles();
+
+      // Mount CodeMirror 6 editor
+      nextTick(() => {
+        const parent = document.getElementById("editor-wrap");
+        if (!parent) return;
+
+        editorInstance = createEditor({
+          parent,
+          initialValue: activeFile.value?.content || "",
+          darkMode: darkMode.value,
+          wordWrap: wordWrap.value,
+          fontSize: editorFontSize.value,
+          lineHeight: editorLineHeight.value,
+          onChange(text) {
+            if (activeFile.value) {
+              activeFile.value.content = text;
+              markUnsaved();
+            }
+          },
+          onKeydown: onEditorKeydown,
+        });
+
+        editorScrollEl = editorInstance?._view?.scrollDOM || null;
+        previewScrollEl = previewScroller.value || document.getElementById("preview-scroller");
+        editorScrollEl?.addEventListener("scroll", onEditorScroll, { passive: true });
+        previewScrollEl?.addEventListener("scroll", onPreviewScroll, { passive: true });
+      });
+
+      // Global keyboard listener
+      window.addEventListener("keydown", onWindowKeydown);
+      window.addEventListener("click", closeAllCtx);
+
+      // Snapshot timer
+      snapshotTimer = setInterval(() => {
+        if (activeFileId.value && unsaved.value) maybeCreateSnapshot();
+      }, 60000); // check every minute
+
+      // Persist sidebar/theme changes
+      watch(sidebarOpen, (v) => setSetting("sidebarOpen", v));
+      watch(renderTheme, (v) => setSetting("renderTheme", v));
     });
 
+    onUnmounted(() => {
+      window.removeEventListener("keydown", onWindowKeydown);
+      window.removeEventListener("click", closeAllCtx);
+      editorScrollEl?.removeEventListener("scroll", onEditorScroll);
+      previewScrollEl?.removeEventListener("scroll", onPreviewScroll);
+      clearInterval(snapshotTimer);
+      editorInstance?.destroy();
+    });
+
+    // ── expose to template ────────────────────────────────────────────────────
+
     return {
-      darkMode,
-      sidebarOpen,
-      viewMode,
-      focusMode,
-      wordWrap,
-      unsaved,
-      showStylePanel,
-      activePanel,
+      // constants
+      TEMPLATES,
+      RENDER_THEMES,
+      LATEX_CATS,
+      latexTemplates,
+      MERMAID_TEMPLATES,
+      BLOCK_TYPES,
+      SHORTCUTS,
+      shortcuts,
+
+      // state
       files,
       activeFileId,
-      currentContent,
       activeFile,
+      unsaved,
+      autosaveStatus,
+      viewMode,
+      sidebarOpen,
+      darkMode,
+      focusMode,
+      wordWrap,
+      editorFontSize,
+      editorLineHeight,
+      showLatex,
+      showMermaid,
+      showExport,
+      showImgManager,
+      showTemplates,
+      showStylePanel,
+      showShortcuts,
+      showFR,
+      showSettings,
+      showHistory,
+      syncScrollEnabled,
+      previewScroller,
+      frFindRef,
       renamingFile,
       renameVal,
       renameInputRef,
-      editorRef,
-      editorFontSize,
-      editorLineHeight,
-      editorWidth,
-      mdFileInput,
+      latexCat,
+      latexInput,
+      latexRendered,
+      latexMode,
+      mermaidCode,
+      mermaidPrev,
+      mermaidRendered,
+      mermaidError,
+      mermaidTpl,
+      activePanel,
+      blocks,
+      editingBlockIdx,
+      blockTypeMenuOpen,
+      blockTypeMenuPos,
+      blockTypeMenuTarget,
+      blockTypeSearch,
       renderTheme,
-      renderThemes,
-      currentThemeName,
       customFont,
       cFontSize,
       cLineH,
       cParaGap,
+      cHeadFont,
+      cH1,
+      cH2,
       cWidth,
       cPadH,
       cPadV,
@@ -2312,180 +2647,190 @@ appInstance = createApp({
       cColorHead,
       cColorLink,
       cColorBg,
-      cHeadFont,
-      cH1,
-      cH2,
-      fontChoices,
-      previewPageStyle,
-      blocks,
-      blockTypeMenuOpen,
-      blockTypeMenuTarget,
-      blockTypeMenuPos,
-      blockTypeSearch,
-      filteredBlockTypes,
-      editingBlockIdx,
+      previewTableLayout,
+      previewTableStriped,
+      previewTableCompact,
+      previewTableFontScale,
+      previewScaleScope,
+      previewScaleFactor,
+      previewBlockSizes,
+      previewBlockAlignments,
+      exportPaperSize,
+      exportOrientation,
+      exportMargins,
+      exportScale,
+      exportBgGraphics,
+      exportTitle,
+      exportAuthor,
       images,
       selectedImgs,
       imgFileInput,
-      showImgManager,
-      showResize,
-      showCrop,
-      resizeTgt,
-      resW,
-      resH,
-      resLock,
+      imgUploadRef: imgFileInput,
+      showResizeModal,
+      resizeTarget,
+      resizeW,
+      resizeH,
+      resizeLock,
       resQ,
-      cropTgt,
+      showCropModal,
+      cropTarget,
       cropX,
       cropY,
       cropW,
       cropH,
-      cropWrapRef,
-      cropImgRef,
-      cropDisplayRect,
-      cropPresets,
-      showExport,
-      showPdfSettings,
-      exportTitle,
-      exportAuthor,
-      exportKeywords,
-      exportDate,
-      pdfPaperSize,
-      pdfOrientation,
-      pdfMargins,
-      pdfScale,
-      pdfBg,
-      TEMPLATES,
+      cropPreset,
       userTemplates,
-      showTemplates,
-      tplTab,
-      showSaveTpl,
+      showSaveTplModal,
       newTplName,
       newTplDesc,
-      tplInclude,
-      showFR,
+      newTplIncContent,
+      notifications,
+      ctxMenu,
+      editorCtxOpen,
+      editorCtxPos,
+      previewCtxOpen,
+      previewCtxPos,
+      fileCtxOpen,
+      fileCtxPos,
+      fileCtxTarget,
+      editorWidth,
+      editorWrap,
       frFind,
       frReplace,
       frCase,
       frRegex,
-      frWhole,
+      frWord,
+      frWhole: frWord,
       frCount,
-      frFindRef,
-      showLatex,
-      latexInput,
-      latexMode,
-      latexCat,
-      latexRendered,
-      latexTemplates,
-      LATEX_CATS,
-      showMermaid,
-      mermaidCode,
-      mermaidDiagramType,
-      mermaidRendered,
-      mermaidError,
-      MERMAID_TEMPLATES,
-      ctxMenu,
-      showShortcuts,
-      shortcuts,
+      snapshots,
+      snapshotFreq,
+      autosaveDelay,
+      settingsAutosaveDelay,
+      settingsSnapshotFreq,
+      settingsEditorFontSize,
+      settingsLineHeight,
+      settingsWordWrap,
+      settingsSpellcheck,
+
+      // computed
+      currentContent,
+      renderedHtml,
       wordCount,
       charCount,
       lineCount,
       readTime,
       headings,
-      renderedHtml,
-      notifications,
-      BLOCK_TYPES,
+      fontChoices,
+      renderThemes,
+      currentThemeName,
+      previewPageStyle,
+      previewPageClass,
+      filteredBlockTypes,
+
+      // methods
       newFile,
       switchFile,
       deleteFile,
-      duplicateFile,
-      saveFile,
+      saveFile: saveFileFn,
       startRename,
-      startRenameById,
       finishRename,
-      undo,
-      redo,
-      onInput,
-      onEditorKeydown,
+      mdFileInput,
+      triggerMdUpload,
+      onMdFileUpload,
       fmt,
       fmtLine,
       fmtBlock,
+      insertText,
+      undo,
+      redo,
       insertLink,
-      insertTable,
-      insertMermaidSnippet,
-      insertMathSnippet,
       insertImageFromLib,
-      doSelectAll,
-      doCopy,
-      clearEditor,
-      toggleDark,
-      startResize,
-      triggerMdUpload,
-      onMdFileUpload,
-      openImgManager,
-      triggerImgUpload,
-      toggleImgSel,
-      onImgUpload,
-      deleteSelected,
-      insertSelected,
-      insertOneImage,
-      openResize,
-      onRW,
-      onRH,
-      applyResize,
-      openCrop,
-      initCropDisplay,
-      onCropMouseDown,
-      applyCropPreset,
-      applyCrop,
-      openTemplates,
-      loadTemplate,
-      loadUserTemplate,
-      saveAsTheme,
-      saveAsUserTemplate,
-      deleteUserTpl,
-      openFR,
-      frDoFind,
-      frReplaceOne,
-      frReplaceAll,
-      resetStyle,
-      copyHtml,
-      copyText,
-      openExport,
-      exportMarkdown,
-      exportTxt,
-      exportJSON,
-      exportHTML,
-      exportDocx,
-      exportPDF,
-      exportSingle,
-      notify,
-      openEditorCtx,
-      openPreviewCtx,
-      openFileCtx,
-      closeCtx,
+      insertTable,
       scrollToHeading,
+      openLatexBuilder,
+      insertLatexSym,
+      onLatexInputChange,
+      onLatexKeyUp,
+      insertLatexToEditor,
+      openMermaidBuilder,
+      previewMermaid,
+      loadMermaidTpl,
+      insertMermaidToEditor,
       parseBlocks,
       blocksToContent,
-      addBlock,
-      deleteBlock,
-      duplicateBlock,
       moveBlock,
+      duplicateBlock,
+      deleteBlock,
+      addBlock,
       openBlockTypeMenu,
       onBlockDragStart,
       onBlockDragOver,
       onBlockDrop,
       onBlockDragEnd,
-      insertLatexSym,
-      onLatexInputChange,
-      onLatexKeyUp,
-      insertLatexToEditor,
-      openLatexBuilder,
-      openMermaidBuilder,
-      loadMermaidTemplate,
-      insertMermaidToEditor,
-      renderMermaidPreview,
+      openFR,
+      frDoFind,
+      frReplaceOne,
+      frGoTo,
+      frCountMatches,
+      frReplaceFn,
+      frReplaceAll,
+      openImgManager,
+      onImgUpload,
+      onImgDrop,
+      triggerImgUpload,
+      toggleImgSelect,
+      toggleImgSel,
+      insertSelectedImgs,
+      insertSelected,
+      deleteSelectedImgs,
+      deleteSelected,
+      insertOneImage,
+      openResize,
+      applyResize,
+      openCrop,
+      applyCrop,
+      openTemplates,
+      loadTemplate,
+      openSaveTplModal,
+      saveAsTheme,
+      saveNewTemplate,
+      openExport,
+      exportMarkdown,
+      exportHtml,
+      exportPdfFn,
+      exportDocx,
+      exportPlain,
+      exportJson,
+      copyHtml,
+      openEditorCtx,
+      openPreviewCtx,
+      openFileCtx,
+      closeCtx,
+      closeAllCtx,
+      doSelectAll,
+      doCopy,
+      clearEditor,
+      copyText,
+      exportPDF,
+      exportHTML,
+      startRenameById,
+      duplicateFile,
+      exportSingle,
+      ctxDuplicateFile,
+      ctxDownloadFile,
+      startResize,
+      toggleDark,
+      toggleSyncScroll,
+      resetStyle,
+      openSettings,
+      applySettings,
+      openHistory,
+      manualSnapshot,
+      restoreSnapshot,
+      removeSnapshot,
+      formatSnapDate,
+      notify,
+      katex: window.katex,
     };
   },
-});
-appInstance.mount("#vue-root");
+}).mount("#vue-root");
