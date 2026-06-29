@@ -411,6 +411,9 @@ select {
   box-sizing: border-box;
   word-break: break-word;
 }
+.preview-segment {
+  display: contents;
+}
 #resizer {
   width: 4px;
   flex-shrink: 0;

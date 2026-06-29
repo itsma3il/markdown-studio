@@ -114,17 +114,33 @@ export async function deleteFile(id) {
 
 let _autosaveTimer  = null;
 let _autosaveDelay  = 2000; // ms
+let _autosaveVersion = 0;
+let _autosaveQueue = Promise.resolve();
+const _latestAutosaveByFile = new Map();
 
 /**
  * Schedule an autosave. Resets the timer on every call (debounce).
  * @param {object}   file      – the current file object (id, name, content …)
  * @param {function} onSaved   – optional callback after save completes
  */
-export function scheduleAutosave(file, onSaved) {
+export function scheduleAutosave(file, onSaved, onError, onSaving) {
   clearTimeout(_autosaveTimer);
+  const version = ++_autosaveVersion;
+  const fileId = file?.id || "__default__";
+  _latestAutosaveByFile.set(fileId, version);
+
   _autosaveTimer = setTimeout(async () => {
-    await saveFile({ ...file });
-    if (typeof onSaved === 'function') onSaved();
+    _autosaveQueue = _autosaveQueue
+      .then(async () => {
+        if (_latestAutosaveByFile.get(fileId) !== version) return;
+        if (typeof onSaving === 'function') onSaving();
+        await saveFile({ ...file });
+        if (_latestAutosaveByFile.get(fileId) !== version) return;
+        if (typeof onSaved === 'function') onSaved();
+      })
+      .catch((error) => {
+        if (typeof onError === 'function') onError(error);
+      });
   }, _autosaveDelay);
 }
 
@@ -134,6 +150,8 @@ export function setAutosaveDelay(ms) {
 
 export function cancelAutosave() {
   clearTimeout(_autosaveTimer);
+  _autosaveVersion++;
+  _latestAutosaveByFile.clear();
 }
 
 // ─── SNAPSHOTS ─────────────────────────────────────────────────────────────

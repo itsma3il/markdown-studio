@@ -10,6 +10,7 @@
  */
 
 import { createEditor } from "./editor.js";
+import { createMermaidRenderer } from "./preview/mermaid-renderer.js";
 import {
   openDB,
   getAllFiles,
@@ -532,6 +533,15 @@ function escHtml(str) {
     .replace(/"/g, "&quot;");
 }
 
+function stableHash(value) {
+  let hash = 5381;
+  const text = String(value);
+  for (let i = 0; i < text.length; i++) {
+    hash = (hash * 33) ^ text.charCodeAt(i);
+  }
+  return (hash >>> 0).toString(36);
+}
+
 // Global copy helper referenced in rendered HTML
 window.copyCode = function (btn) {
   const wrap = btn.closest(".code-block-wrap");
@@ -712,53 +722,10 @@ function renderKatex(container) {
 
 // ─── Mermaid post-process ──────────────────────────────────────────────────
 
-async function renderMermaid(container) {
-  if (!window.mermaid) return;
-  const pres = container.querySelectorAll("pre.mermaid");
-  const isDark = document.documentElement.getAttribute("data-theme") === "dark";
-  if (typeof mermaid.initialize === "function") {
-    mermaid.initialize({
-      startOnLoad: false,
-      theme: isDark ? "dark" : "default",
-      suppressErrorRendering: true,
-    });
-  }
-  for (const pre of pres) {
-    const block = pre.closest(".mermaid-block");
-    block?.querySelectorAll(".mermaid-rendered, .mermaid-error").forEach((el) => el.remove());
-    pre.classList.remove("mermaid-error");
+const mermaidPreviewRenderer = createMermaidRenderer();
 
-    try {
-      const code = pre.textContent;
-      const id = "mmd-" + Math.random().toString(36).slice(2, 8);
-      document.getElementById(`d${id}`)?.remove();
-      if (typeof mermaid.parse === "function") {
-        await mermaid.parse(code);
-      }
-      const { svg } = await mermaid.render(id, code);
-      document.getElementById(`d${id}`)?.remove();
-      const div = document.createElement("div");
-      div.className = "mermaid-rendered";
-      div.innerHTML = svg;
-      pre.hidden = true;
-      block ? pre.insertAdjacentElement("afterend", div) : pre.replaceWith(div);
-    } catch (e) {
-      document.querySelectorAll('[id^="dmmd-"], [id^="dmermaid-"]').forEach((el) => {
-        if (el.parentElement === document.body) el.remove();
-      });
-      pre.hidden = true;
-      const err = document.createElement("div");
-      err.className = "mermaid-error";
-      const title = document.createElement("div");
-      title.className = "mermaid-error-title";
-      title.innerHTML = '<i class="ti ti-alert-triangle"></i><span>Mermaid syntax error</span>';
-      const message = document.createElement("pre");
-      message.className = "mermaid-error-message";
-      message.textContent = e?.message || "Unable to render this Mermaid diagram.";
-      err.append(title, message);
-      block ? pre.insertAdjacentElement("afterend", err) : pre.replaceWith(err);
-    }
-  }
+async function renderMermaid(container) {
+  await mermaidPreviewRenderer.render(container);
 }
 
 async function postProcessPreviewContainer(
@@ -1211,9 +1178,9 @@ createApp({
       },
     });
 
-    const renderedHtml = computed(() => {
+    function renderMarkdownToHtml(markdown) {
       if (!window.marked) return "<p>Loading…</p>";
-      let src = currentContent.value || "";
+      let src = markdown || "";
       const mathBlocks = [];
 
       src = src.replace(/\$\$([\s\S]+?)\$\$/g, (match, expr) => {
@@ -1251,7 +1218,54 @@ createApp({
       }
 
       return html;
-    });
+    }
+
+    function splitPreviewSource(src) {
+      const segments = [];
+      const mermaidFence = /```mermaid[^\n]*\n[\s\S]*?```/gi;
+      let cursor = 0;
+      let match;
+      let textIndex = 0;
+      let mermaidIndex = 0;
+
+      while ((match = mermaidFence.exec(src))) {
+        if (match.index > cursor) {
+          const text = src.slice(cursor, match.index);
+          segments.push({
+            type: "markdown",
+            key: `md:${textIndex++}`,
+            html: renderMarkdownToHtml(text),
+          });
+        }
+
+        const source = match[0];
+        segments.push({
+          type: "mermaid",
+          key: `mermaid:${mermaidIndex++}:${stableHash(source)}`,
+          html: renderMarkdownToHtml(source),
+        });
+        cursor = match.index + source.length;
+      }
+
+      if (cursor < src.length || !segments.length) {
+        const text = src.slice(cursor);
+        segments.push({
+          type: "markdown",
+          key: `md:${textIndex++}`,
+          html: renderMarkdownToHtml(text),
+        });
+      }
+
+      return segments;
+    }
+
+    const previewSegments = computed(() =>
+      splitPreviewSource(currentContent.value || ""),
+    );
+
+    const renderedHtml = computed(() =>
+      previewSegments.value.map((segment) => segment.html).join(""),
+    );
 
     const wordCount = computed(
       () =>
@@ -1384,6 +1398,26 @@ createApp({
       setTimeout(() => {
         notifications.value = notifications.value.filter((n) => n.id !== id);
       }, duration);
+    }
+
+    let lastStorageQuotaWarning = 0;
+    async function checkStorageQuota(context = "Storage") {
+      if (!navigator.storage?.estimate) return;
+      try {
+        const { usage = 0, quota = 0 } = await navigator.storage.estimate();
+        if (!quota) return;
+        const ratio = usage / quota;
+        const now = Date.now();
+        if (ratio < 0.85 || now - lastStorageQuotaWarning < 60000) return;
+        lastStorageQuotaWarning = now;
+        notify(
+          `${context} is using ${Math.round(ratio * 100)}% of browser storage. Export a backup soon.`,
+          "warn",
+          6000,
+        );
+      } catch {
+        // Storage estimate is best-effort and not supported in every browser mode.
+      }
     }
 
     function openAppDialog(options) {
@@ -1595,6 +1629,13 @@ createApp({
           autosaveStatus.value = "saved";
           // Possibly create snapshot
           maybeCreateSnapshot();
+        },
+        (error) => {
+          autosaveStatus.value = "unsaved";
+          notify(error?.message || "Autosave failed", "warn");
+        },
+        () => {
+          autosaveStatus.value = "saving";
         },
       );
     }
@@ -2554,6 +2595,7 @@ createApp({
             if (!selectedImgs.value.includes(entry.id)) selectedImgs.value.push(entry.id);
             syncImagePath(entry);
             notify(`Uploaded ${file.name}`, "success", 1400);
+            setTimeout(() => checkStorageQuota("Image library"), 250);
           };
           img.src = ev.target.result;
         };
@@ -3251,6 +3293,7 @@ ${body}
         images.value = settings.imageLibrary;
         rebuildImagePathMap();
       }
+      checkStorageQuota("Workspace");
 
       // Load files from IndexedDB
       await loadAllFiles();
@@ -3475,6 +3518,7 @@ ${body}
 
       // computed
       currentContent,
+      previewSegments,
       renderedHtml,
       wordCount,
       charCount,

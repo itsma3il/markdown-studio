@@ -653,8 +653,15 @@
                 id="preview-page"
                 :class="['md-body','theme-'+renderTheme, previewPageClass]"
                 :style="previewPageStyle"
-                v-html="renderedHtml"
-              ></div>
+              >
+                <div
+                  v-for="segment in previewSegments"
+                  :key="segment.key"
+                  class="preview-segment"
+                  :data-preview-segment="segment.type"
+                  v-html="segment.html"
+                ></div>
+              </div>
             </div>
           </div>
           <transition name="slide-r">
@@ -2244,8 +2251,15 @@
               class="focus-inner md-body"
               :class="'theme-'+renderTheme"
               :style="previewPageStyle"
-              v-html="renderedHtml"
-            ></div>
+            >
+              <div
+                v-for="segment in previewSegments"
+                :key="'focus-'+segment.key"
+                class="preview-segment"
+                :data-preview-segment="segment.type"
+                v-html="segment.html"
+              ></div>
+            </div>
           </div>
         </div>
       </transition>
