@@ -456,6 +456,15 @@ function sanitizeHtml(html) {
   return String(html).replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "");
 }
 
+function sanitizeSvgHtml(html) {
+  if (window.DOMPurify) {
+    return DOMPurify.sanitize(html, {
+      USE_PROFILES: { svg: true, svgFilters: true },
+    });
+  }
+  return String(html).replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "");
+}
+
 // ─── Marked setup ───────────────────────────────────────────────────────────
 
 function setupMarked() {
@@ -691,6 +700,38 @@ function copyBlockSource(kind, wrap) {
   navigator.clipboard?.writeText(text);
 }
 
+function getPreviewMermaidPayload(wrap) {
+  const block = wrap?.querySelector(".mermaid-block");
+  const source =
+    block?.dataset.code ||
+    wrap?.dataset.code ||
+    wrap?.querySelector("pre.mermaid")?.textContent ||
+    "";
+  const svg = wrap?.querySelector(".mermaid-rendered svg");
+  const error = wrap?.querySelector(".mermaid-error-message")?.textContent || "";
+  let width = 960;
+  let height = 540;
+  if (svg) {
+    const viewBox = svg.getAttribute("viewBox")?.trim().split(/\s+/).map(Number);
+    const attrWidth = Number.parseFloat(svg.getAttribute("width") || "");
+    const attrHeight = Number.parseFloat(svg.getAttribute("height") || "");
+    if (viewBox?.length === 4 && viewBox.every(Number.isFinite)) {
+      width = Math.max(1, viewBox[2]);
+      height = Math.max(1, viewBox[3]);
+    } else if (Number.isFinite(attrWidth) && Number.isFinite(attrHeight)) {
+      width = Math.max(1, attrWidth);
+      height = Math.max(1, attrHeight);
+    }
+  }
+  return {
+    source,
+    html: svg ? sanitizeSvgHtml(svg.outerHTML) : "",
+    error,
+    width,
+    height,
+  };
+}
+
 function parseMarkdownTableBlock(block) {
   const lines = String(block || "")
     .trim()
@@ -789,6 +830,143 @@ function applyPreviewBlockStyle(wrap, style, kind) {
       : "transparent";
   wrap.style.padding = `${normalized.padding}px`;
   wrap.style.borderRadius = `${normalized.radius}px`;
+}
+
+const zipCrcTable = (() => {
+  const table = new Uint32Array(256);
+  for (let index = 0; index < 256; index++) {
+    let crc = index;
+    for (let bit = 0; bit < 8; bit++) {
+      crc = crc & 1 ? 0xedb88320 ^ (crc >>> 1) : crc >>> 1;
+    }
+    table[index] = crc >>> 0;
+  }
+  return table;
+})();
+
+function crc32(bytes) {
+  let crc = 0xffffffff;
+  for (const byte of bytes) {
+    crc = zipCrcTable[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function writeZipUint16(view, offset, value) {
+  view.setUint16(offset, value, true);
+}
+
+function writeZipUint32(view, offset, value) {
+  view.setUint32(offset, value >>> 0, true);
+}
+
+function getZipDateParts(date = new Date()) {
+  const time =
+    (date.getHours() << 11) |
+    (date.getMinutes() << 5) |
+    Math.floor(date.getSeconds() / 2);
+  const dosDate =
+    ((date.getFullYear() - 1980) << 9) |
+    ((date.getMonth() + 1) << 5) |
+    date.getDate();
+  return { time, dosDate };
+}
+
+function concatZipParts(parts) {
+  const total = parts.reduce((sum, part) => sum + part.length, 0);
+  const out = new Uint8Array(total);
+  let offset = 0;
+  parts.forEach((part) => {
+    out.set(part, offset);
+    offset += part.length;
+  });
+  return out;
+}
+
+function createZipBlob(entries) {
+  const encoder = new TextEncoder();
+  const parts = [];
+  const central = [];
+  let offset = 0;
+  const { time, dosDate } = getZipDateParts();
+
+  entries.forEach((entry) => {
+    const name = encoder.encode(entry.name);
+    const data = entry.data instanceof Uint8Array ? entry.data : encoder.encode(String(entry.data || ""));
+    const crc = crc32(data);
+
+    const local = new Uint8Array(30 + name.length);
+    const localView = new DataView(local.buffer);
+    writeZipUint32(localView, 0, 0x04034b50);
+    writeZipUint16(localView, 4, 20);
+    writeZipUint16(localView, 6, 0x0800);
+    writeZipUint16(localView, 8, 0);
+    writeZipUint16(localView, 10, time);
+    writeZipUint16(localView, 12, dosDate);
+    writeZipUint32(localView, 14, crc);
+    writeZipUint32(localView, 18, data.length);
+    writeZipUint32(localView, 22, data.length);
+    writeZipUint16(localView, 26, name.length);
+    writeZipUint16(localView, 28, 0);
+    local.set(name, 30);
+
+    parts.push(local, data);
+
+    const header = new Uint8Array(46 + name.length);
+    const headerView = new DataView(header.buffer);
+    writeZipUint32(headerView, 0, 0x02014b50);
+    writeZipUint16(headerView, 4, 20);
+    writeZipUint16(headerView, 6, 20);
+    writeZipUint16(headerView, 8, 0x0800);
+    writeZipUint16(headerView, 10, 0);
+    writeZipUint16(headerView, 12, time);
+    writeZipUint16(headerView, 14, dosDate);
+    writeZipUint32(headerView, 16, crc);
+    writeZipUint32(headerView, 20, data.length);
+    writeZipUint32(headerView, 24, data.length);
+    writeZipUint16(headerView, 28, name.length);
+    writeZipUint16(headerView, 30, 0);
+    writeZipUint16(headerView, 32, 0);
+    writeZipUint16(headerView, 34, 0);
+    writeZipUint16(headerView, 36, 0);
+    writeZipUint32(headerView, 38, 0);
+    writeZipUint32(headerView, 42, offset);
+    header.set(name, 46);
+    central.push(header);
+
+    offset += local.length + data.length;
+  });
+
+  const centralStart = offset;
+  const centralBytes = concatZipParts(central);
+  parts.push(centralBytes);
+  offset += centralBytes.length;
+
+  const end = new Uint8Array(22);
+  const endView = new DataView(end.buffer);
+  writeZipUint32(endView, 0, 0x06054b50);
+  writeZipUint16(endView, 4, 0);
+  writeZipUint16(endView, 6, 0);
+  writeZipUint16(endView, 8, entries.length);
+  writeZipUint16(endView, 10, entries.length);
+  writeZipUint32(endView, 12, centralBytes.length);
+  writeZipUint32(endView, 16, centralStart);
+  writeZipUint16(endView, 20, 0);
+  parts.push(end);
+
+  return new Blob(parts, { type: "application/zip" });
+}
+
+function dataUrlToBytes(dataUrl) {
+  const match = String(dataUrl || "").match(/^data:([^;,]+)?(;base64)?,(.*)$/);
+  if (!match) return null;
+  const payload = match[3] || "";
+  const text = match[2] ? atob(payload) : decodeURIComponent(payload);
+  const bytes = new Uint8Array(text.length);
+  for (let index = 0; index < text.length; index++) {
+    bytes[index] = text.charCodeAt(index);
+  }
+  return bytes;
 }
 
 function clearPreviewBlockStyle(wrap) {
@@ -939,6 +1117,7 @@ async function postProcessPreviewContainer(
   onResize,
   onStyleChange,
   onOpenBlockStyle,
+  onOpenMermaidViewer,
   onEditTable,
 ) {
   if (!container) return;
@@ -952,6 +1131,7 @@ async function postProcessPreviewContainer(
     onResize,
     onStyleChange,
     onOpenBlockStyle,
+    onOpenMermaidViewer,
     onEditTable,
   );
 }
@@ -964,6 +1144,7 @@ function enhancePreviewBlocks(
   onResize,
   onStyleChange,
   onOpenBlockStyle,
+  onOpenMermaidViewer,
   onEditTable,
 ) {
   const targets = [];
@@ -1086,6 +1267,22 @@ function enhancePreviewBlocks(
       );
     });
     toolbar.append(style);
+    if (kind === "mermaid") {
+      const zoom = document.createElement("button");
+      zoom.type = "button";
+      zoom.className = "preview-block-zoom";
+      zoom.title = "Open Mermaid viewer";
+      zoom.innerHTML = '<i class="ti ti-arrows-maximize"></i>';
+      zoom.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onOpenMermaidViewer?.(
+          wrap.dataset.resizeKey || key,
+          getPreviewMermaidPayload(wrap),
+        );
+      });
+      toolbar.append(zoom);
+    }
     if (kind === "table") {
       const edit = document.createElement("button");
       edit.type = "button";
@@ -1271,6 +1468,28 @@ createApp({
       padding: 6,
       radius: 8,
     });
+    const showMermaidViewer = ref(false);
+    const mermaidViewer = ref({
+      key: "",
+      html: "",
+      source: "",
+      error: "",
+      zoom: 1,
+      width: 960,
+      height: 540,
+      panX: 0,
+      panY: 0,
+      dragging: false,
+    });
+    const mermaidViewerCanvasRef = ref(null);
+    const mermaidViewerZoomLabel = computed(() =>
+      `${Math.round(mermaidViewer.value.zoom * 100)}%`,
+    );
+    const mermaidViewerStageStyle = computed(() => ({
+      width: `${Math.max(1, mermaidViewer.value.width * mermaidViewer.value.zoom)}px`,
+      minHeight: `${Math.max(1, mermaidViewer.value.height * mermaidViewer.value.zoom)}px`,
+      transform: `translate(${mermaidViewer.value.panX}px, ${mermaidViewer.value.panY}px)`,
+    }));
 
     // export
     const showPdfSettings = ref(false);
@@ -2400,6 +2619,7 @@ createApp({
                 beginPreviewResize,
                 touchActiveFileStyle,
                 openBlockStyleEditor,
+                openMermaidViewer,
                 openTableEditor,
               ),
             ),
@@ -2671,6 +2891,149 @@ createApp({
       touchActiveFileStyle();
       scheduleRender();
       notify("Block style reset", "success", 1200);
+    }
+
+    function openMermaidViewer(key, payload = {}) {
+      const source = payload.source || "";
+      mermaidViewer.value = {
+        key,
+        html: payload.html || "",
+        source,
+        error: payload.error || "",
+        zoom: 1,
+        width: Math.max(1, Number(payload.width) || 960),
+        height: Math.max(1, Number(payload.height) || 540),
+        panX: 0,
+        panY: 0,
+        dragging: false,
+      };
+      showMermaidViewer.value = true;
+      nextTick(fitMermaidViewer);
+    }
+
+    function closeMermaidViewer() {
+      showMermaidViewer.value = false;
+    }
+
+    function fitMermaidViewer() {
+      const canvas = mermaidViewerCanvasRef.value;
+      if (!canvas || !mermaidViewer.value.html) return;
+      const padding = 56;
+      const availableW = Math.max(240, canvas.clientWidth - padding);
+      const availableH = Math.max(180, canvas.clientHeight - padding);
+      const fit = Math.min(
+        availableW / mermaidViewer.value.width,
+        availableH / mermaidViewer.value.height,
+      );
+      mermaidViewer.value.zoom = clampNumber(fit, 0.15, 3, 1);
+      mermaidViewer.value.panX = 0;
+      mermaidViewer.value.panY = 0;
+    }
+
+    function setMermaidViewerZoom(delta) {
+      mermaidViewer.value.zoom = clampNumber(
+        mermaidViewer.value.zoom * (delta > 0 ? 1.18 : 1 / 1.18),
+        0.1,
+        6,
+        1,
+      );
+    }
+
+    function resetMermaidViewerZoom() {
+      mermaidViewer.value.zoom = 1;
+      mermaidViewer.value.panX = 0;
+      mermaidViewer.value.panY = 0;
+    }
+
+    function onMermaidViewerWheel(event) {
+      if (!mermaidViewer.value.html) return;
+      const direction = event.deltaY < 0 ? 1 : -1;
+      setMermaidViewerZoom(direction);
+    }
+
+    function beginMermaidViewerPan(event) {
+      if (!mermaidViewer.value.html || event.button !== 0) return;
+      event.preventDefault();
+      const startX = event.clientX;
+      const startY = event.clientY;
+      const initialX = mermaidViewer.value.panX;
+      const initialY = mermaidViewer.value.panY;
+      mermaidViewer.value.dragging = true;
+      event.currentTarget?.setPointerCapture?.(event.pointerId);
+
+      const move = (moveEvent) => {
+        mermaidViewer.value.panX = initialX + (moveEvent.clientX - startX);
+        mermaidViewer.value.panY = initialY + (moveEvent.clientY - startY);
+      };
+      const up = () => {
+        mermaidViewer.value.dragging = false;
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+      };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up, { once: true });
+    }
+
+    function copyMermaidViewerSource() {
+      if (!mermaidViewer.value.source) return;
+      navigator.clipboard?.writeText(mermaidViewer.value.source);
+      notify("Mermaid source copied", "success", 1200);
+    }
+
+    function mermaidDownloadName(ext) {
+      const base = activeFile.value?.name?.replace(/\.[^.]+$/, "") || "mermaid-diagram";
+      return `${base}-${mermaidViewer.value.key || "diagram"}.${ext}`.replace(/[^\w.-]+/g, "-");
+    }
+
+    function getMermaidViewerSvgMarkup() {
+      if (!mermaidViewer.value.html) return "";
+      const doc = new DOMParser().parseFromString(mermaidViewer.value.html, "image/svg+xml");
+      const svg = doc.querySelector("svg");
+      if (!svg) return mermaidViewer.value.html;
+      svg.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+      svg.setAttribute("width", String(Math.round(mermaidViewer.value.width)));
+      svg.setAttribute("height", String(Math.round(mermaidViewer.value.height)));
+      svg.style.maxWidth = "";
+      return new XMLSerializer().serializeToString(svg);
+    }
+
+    function downloadMermaidSvg() {
+      const svg = getMermaidViewerSvgMarkup();
+      if (!svg) return;
+      const blob = new Blob([svg], { type: "image/svg+xml" });
+      downloadBlob(blob, mermaidDownloadName("svg"));
+      notify("SVG exported", "success", 1200);
+    }
+
+    function downloadMermaidPng() {
+      const svg = getMermaidViewerSvgMarkup();
+      if (!svg) return;
+      const svgBlob = new Blob([svg], { type: "image/svg+xml" });
+      const url = URL.createObjectURL(svgBlob);
+      const img = new Image();
+      img.onload = () => {
+        const scale = 2;
+        const width = Math.max(1, Math.round(mermaidViewer.value.width));
+        const height = Math.max(1, Math.round(mermaidViewer.value.height));
+        const canvas = document.createElement("canvas");
+        canvas.width = width * scale;
+        canvas.height = height * scale;
+        const ctx = canvas.getContext("2d");
+        ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--bg0") || "#ffffff";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        URL.revokeObjectURL(url);
+        canvas.toBlob((blob) => {
+          if (!blob) return;
+          downloadBlob(blob, mermaidDownloadName("png"));
+          notify("PNG exported", "success", 1200);
+        }, "image/png");
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        notify("PNG export failed", "warn");
+      };
+      img.src = url;
     }
 
     function scrollToHeading(slug) {
@@ -3549,6 +3912,60 @@ createApp({
       );
     }
 
+    function getExportMetadata() {
+      return {
+        app: "Markdown Studio",
+        exportedAt: new Date().toISOString(),
+        file: {
+          id: activeFile.value?.id || "",
+          name: activeFile.value?.name || "document.md",
+          updatedAt: activeFile.value?.updatedAt || null,
+        },
+        document: {
+          title: exportTitle.value || activeFile.value?.name || "Document",
+          author: exportAuthor.value || "",
+          wordCount: wordCount.value,
+          lineCount: lineCount.value,
+        },
+        template: {
+          theme: renderTheme.value,
+          style: captureFileStyle(),
+        },
+      };
+    }
+
+    function buildMetadataScript(metadata) {
+      return `<script type="application/json" id="markdown-studio-metadata">${JSON.stringify(metadata, null, 2).replace(/<\/script/gi, "<\\/script")}<\/script>`;
+    }
+
+    function getEmbeddedImageSource(src) {
+      const normalized = String(src || "").replace(/^\.\//, "");
+      let decoded = normalized;
+      try {
+        decoded = decodeURIComponent(normalized);
+      } catch {}
+      const mapped =
+        imagePathMap.value?.[src] ||
+        imagePathMap.value?.[normalized] ||
+        imagePathMap.value?.[decoded] ||
+        imagePathMap.value?.[decoded.replace(/^\.\//, "")];
+      if (mapped) return mapped;
+      const image = images.value.find((entry) => {
+        const path = String(entry.path || "").replace(/^\.\//, "");
+        return path === normalized || path === decoded || entry.name === decoded;
+      });
+      return image?.dataUrl || image?.data || "";
+    }
+
+    function embedExportImages(html) {
+      const doc = new DOMParser().parseFromString(html || "", "text/html");
+      doc.querySelectorAll("img[src]").forEach((img) => {
+        const embedded = getEmbeddedImageSource(img.getAttribute("src"));
+        if (embedded) img.setAttribute("src", embedded);
+      });
+      return doc.body.innerHTML;
+    }
+
     function cssPropName(prop) {
       return prop.startsWith("--")
         ? prop
@@ -3611,10 +4028,11 @@ ${pageStyle}
     }
 
     function buildExportHtml() {
-      const body = renderedHtml.value;
+      const body = embedExportImages(renderedHtml.value);
       const title = escHtml(exportTitle.value || activeFile.value?.name || "Document");
       const themeClass = `theme-${String(renderTheme.value).replace(/[^\w-]/g, "")}`;
       const scaleClass = String(previewPageClass.value).replace(/[^\w-]/g, "");
+      const metadata = getExportMetadata();
       return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -3628,6 +4046,7 @@ ${buildExportStyle()}
 </style>
 </head>
 <body>
+${buildMetadataScript(metadata)}
 <main class="md-export md-body ${themeClass} ${scaleClass}">
 ${body}
 </main>
@@ -3642,7 +4061,7 @@ ${body}
 
     function exportDocx() {
       // Simple Word-compatible HTML export
-      const html = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word'><head><meta charset='utf-8'><style>${buildExportStyle()}</style></head><body><main class="md-export">${renderedHtml.value}</main></body></html>`;
+      const html = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word'><head><meta charset='utf-8'><style>${buildExportStyle()}</style></head><body>${buildMetadataScript(getExportMetadata())}<main class="md-export">${embedExportImages(renderedHtml.value)}</main></body></html>`;
       const blob = new Blob([html], { type: "application/msword" });
       downloadBlob(
         blob,
@@ -3664,7 +4083,7 @@ ${body}
         name: activeFile.value?.name,
         content: editorInstance?.getValue() || currentContent.value,
         exportedAt: new Date().toISOString(),
-        metadata: { title: exportTitle.value, author: exportAuthor.value },
+        metadata: getExportMetadata(),
       };
       const blob = new Blob([JSON.stringify(data, null, 2)], {
         type: "application/json",
@@ -3673,6 +4092,71 @@ ${body}
         blob,
         (activeFile.value?.name?.replace(".md", "") || "document") + ".json",
       );
+    }
+
+    function safeZipPathName(name, fallback = "file") {
+      return String(name || fallback)
+        .replace(/[\\/:*?"<>|]+/g, "-")
+        .replace(/\s+/g, " ")
+        .trim() || fallback;
+    }
+
+    function exportAllZip() {
+      const entries = [];
+      const seen = new Set();
+      const currentText = editorInstance?.getValue() || currentContent.value;
+      const workspaceFiles = files.value.map((file) =>
+        file.id === activeFileId.value ? { ...file, content: currentText } : file,
+      );
+
+      workspaceFiles.forEach((file, index) => {
+        const base = safeZipPathName(file.name || `document-${index + 1}.md`);
+        const name = base.endsWith(".md") ? base : `${base}.md`;
+        let path = `documents/${name}`;
+        if (seen.has(path)) path = `documents/${file.id || index}-${name}`;
+        seen.add(path);
+        entries.push({ name: path, data: file.content || "" });
+      });
+
+      images.value.forEach((image, index) => {
+        const data = dataUrlToBytes(image.dataUrl || image.data);
+        if (!data) return;
+        const name = safeZipPathName(image.path || image.name || `image-${index + 1}`);
+        let path = name.startsWith("images/") ? name : `images/${name}`;
+        if (seen.has(path)) path = `images/${image.id || index}-${name.replace(/^images\//, "")}`;
+        seen.add(path);
+        entries.push({ name: path, data });
+      });
+
+      entries.push({
+        name: "metadata/workspace.json",
+        data: JSON.stringify(
+          {
+            metadata: getExportMetadata(),
+            files: workspaceFiles.map((file) => ({
+              id: file.id,
+              name: file.name,
+              createdAt: file.createdAt,
+              updatedAt: file.updatedAt,
+              style: file.style || null,
+            })),
+            images: images.value.map((image) => ({
+              id: image.id,
+              name: image.name,
+              path: image.path,
+              mime: image.mime,
+              width: image.width,
+              height: image.height,
+            })),
+          },
+          null,
+          2,
+        ),
+      });
+
+      const blob = createZipBlob(entries);
+      downloadBlob(blob, `markdown-studio-${new Date().toISOString().slice(0, 10)}.zip`);
+      notify("Workspace ZIP exported", "success", 1600);
     }
 
     function copyHtml() {
@@ -4168,6 +4652,9 @@ ${body}
       tableEditor,
       showBlockStyleEditor,
       blockStyleEditor,
+      showMermaidViewer,
+      mermaidViewer,
+      mermaidViewerCanvasRef,
       notifications,
       ctxMenu,
       editorCtxOpen,
@@ -4210,6 +4697,8 @@ ${body}
       currentThemeName,
       previewPageStyle,
       previewPageClass,
+      mermaidViewerZoomLabel,
+      mermaidViewerStageStyle,
       filteredBlockTypes,
 
       // methods
@@ -4246,6 +4735,15 @@ ${body}
       applyTableEditor,
       applyBlockStyleEditor,
       resetBlockStyleEditor,
+      closeMermaidViewer,
+      fitMermaidViewer,
+      setMermaidViewerZoom,
+      resetMermaidViewerZoom,
+      onMermaidViewerWheel,
+      beginMermaidViewerPan,
+      copyMermaidViewerSource,
+      downloadMermaidSvg,
+      downloadMermaidPng,
       scrollToHeading,
       openLatexBuilder,
       insertLatexSym,
@@ -4310,6 +4808,7 @@ ${body}
       exportDocx,
       exportPlain,
       exportJson,
+      exportAllZip,
       copyHtml,
       openEditorCtx,
       openPreviewCtx,

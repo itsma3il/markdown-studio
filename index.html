@@ -1292,12 +1292,12 @@
             <div class="export-card" @click="exportHtml">
               <i class="ti ti-brand-html5"></i>
               <div class="export-card-name">HTML</div>
-              <div class="export-card-desc">Standalone + Mermaid</div>
+              <div class="export-card-desc">Embedded images + metadata</div>
             </div>
             <div class="export-card" @click="exportDocx">
               <i class="ti ti-file-word"></i>
               <div class="export-card-name">Word (.doc)</div>
-              <div class="export-card-desc">MS Word</div>
+              <div class="export-card-desc">Embedded images</div>
             </div>
             <div class="export-card" @click="exportTxt">
               <i class="ti ti-file-text"></i>
@@ -1308,6 +1308,11 @@
               <i class="ti ti-braces"></i>
               <div class="export-card-name">JSON</div>
               <div class="export-card-desc">Doc + metadata</div>
+            </div>
+            <div class="export-card" @click="exportAllZip">
+              <i class="ti ti-file-zip"></i>
+              <div class="export-card-name">Workspace ZIP</div>
+              <div class="export-card-desc">All files + images</div>
             </div>
           </div>
           <div class="pdf-settings" v-if="showPdfSettings">
@@ -1829,6 +1834,97 @@
             ><button class="btn btn-primary" @click="saveAsUserTemplate">
               Save
             </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- MERMAID VIEWER -->
+      <div
+        class="modal-overlay mermaid-viewer-overlay"
+        v-if="showMermaidViewer"
+        @click.self="closeMermaidViewer"
+      >
+        <div class="mermaid-viewer-modal">
+          <div class="mermaid-viewer-toolbar">
+            <div class="mermaid-viewer-title">
+              <i class="ti ti-topology-star"></i>Mermaid Viewer
+            </div>
+            <div class="mermaid-viewer-actions">
+              <button
+                class="tool-btn"
+                @click="setMermaidViewerZoom(-0.15)"
+                title="Zoom out"
+              >
+                <i class="ti ti-zoom-out"></i>
+              </button>
+              <button
+                class="tool-btn mermaid-viewer-zoom"
+                @click="fitMermaidViewer"
+                title="Fit diagram"
+              >
+                {{mermaidViewerZoomLabel}}
+              </button>
+              <button
+                class="tool-btn"
+                @click="setMermaidViewerZoom(0.15)"
+                title="Zoom in"
+              >
+                <i class="ti ti-zoom-in"></i>
+              </button>
+              <button
+                class="tool-btn"
+                @click="resetMermaidViewerZoom"
+                title="Actual size"
+              >
+                <i class="ti ti-focus-2"></i>
+              </button>
+              <button
+                class="tool-btn"
+                @click="copyMermaidViewerSource"
+                title="Copy source"
+              >
+                <i class="ti ti-copy"></i>
+              </button>
+              <button
+                class="tool-btn"
+                @click="downloadMermaidSvg"
+                title="Save SVG"
+              >
+                SVG
+              </button>
+              <button
+                class="tool-btn"
+                @click="downloadMermaidPng"
+                title="Save PNG"
+              >
+                PNG
+              </button>
+              <button
+                class="tool-btn"
+                @click="closeMermaidViewer"
+                title="Close"
+              >
+                <i class="ti ti-x"></i>
+              </button>
+            </div>
+          </div>
+          <div
+            class="mermaid-viewer-canvas"
+            ref="mermaidViewerCanvasRef"
+            :class="{dragging:mermaidViewer.dragging}"
+            @pointerdown="beginMermaidViewerPan"
+            @wheel.prevent="onMermaidViewerWheel"
+          >
+            <div
+              v-if="mermaidViewer.html"
+              class="mermaid-viewer-stage"
+              :style="mermaidViewerStageStyle"
+              v-html="mermaidViewer.html"
+            ></div>
+            <div v-else class="mermaid-viewer-empty">
+              <i class="ti ti-alert-triangle"></i>
+              <pre>{{mermaidViewer.error || 'No rendered diagram available.'}}</pre>
+            </div>
           </div>
         </div>
       </div>

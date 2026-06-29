@@ -1041,6 +1041,7 @@ select {
 .preview-resize-wrap .preview-block-copy,
 .preview-resize-wrap .preview-block-align,
 .preview-resize-wrap .preview-block-style,
+.preview-resize-wrap .preview-block-zoom,
 .preview-resize-wrap .preview-block-edit,
 .preview-resize-wrap .preview-resize-handle {
   width: 26px;
@@ -1062,6 +1063,7 @@ select {
 .preview-resize-wrap .preview-block-copy:hover,
 .preview-resize-wrap .preview-block-align:hover,
 .preview-resize-wrap .preview-block-style:hover,
+.preview-resize-wrap .preview-block-zoom:hover,
 .preview-resize-wrap .preview-block-edit:hover,
 .preview-resize-wrap .preview-resize-handle:hover {
   background: var(--acc-bg);
@@ -1947,6 +1949,118 @@ select {
   margin-top: 18px;
   padding-top: 14px;
   border-top: 1px solid var(--border);
+}
+.mermaid-viewer-overlay {
+  padding: 18px;
+}
+.mermaid-viewer-modal {
+  width: min(1180px, 96vw);
+  height: min(820px, 92vh);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg0);
+  box-shadow: 0 24px 80px rgba(15, 23, 42, 0.28);
+}
+.mermaid-viewer-toolbar {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px 8px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg1);
+}
+.mermaid-viewer-title {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--fg0);
+  font-size: 13px;
+  font-weight: 800;
+}
+.mermaid-viewer-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.mermaid-viewer-zoom {
+  min-width: 58px;
+  font: 700 11px/1 var(--font-mono);
+}
+.mermaid-viewer-canvas {
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 28px;
+  cursor: grab;
+  user-select: none;
+  background:
+    linear-gradient(var(--border) 1px, transparent 1px),
+    linear-gradient(90deg, var(--border) 1px, transparent 1px),
+    var(--bg0);
+  background-size: 28px 28px;
+}
+.mermaid-viewer-canvas.dragging {
+  cursor: grabbing;
+}
+.mermaid-viewer-stage {
+  transform-origin: top center;
+  transition: transform 0.12s ease;
+  flex: 0 0 auto;
+}
+.mermaid-viewer-stage svg {
+  width: 100%;
+  max-width: none !important;
+  height: auto;
+  display: block;
+  background: var(--bg0);
+}
+.mermaid-viewer-empty {
+  width: min(560px, 100%);
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+  align-self: center;
+  padding: 24px;
+  color: var(--err);
+  text-align: center;
+}
+.mermaid-viewer-empty pre {
+  max-width: 100%;
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: 12px/1.55 var(--font-mono);
+}
+@media (max-width: 640px) {
+  .mermaid-viewer-overlay {
+    padding: 8px;
+  }
+  .mermaid-viewer-modal {
+    width: 100%;
+    height: 94vh;
+    border-radius: 8px;
+  }
+  .mermaid-viewer-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .mermaid-viewer-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+  .mermaid-viewer-canvas {
+    padding: 16px;
+  }
 }
 .block-style-modal {
   width: min(460px, 94vw);

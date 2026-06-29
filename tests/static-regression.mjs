@@ -36,6 +36,17 @@ assert.match(script, /function renderPreviewErrorHtml/, "Preview render error bo
 assert.match(script, /previewBlockStyles/, "Per-block preview styles are persisted with file style");
 assert.match(script, /function openBlockStyleEditor/, "Preview block style editor can open from toolbar");
 assert.match(script, /function applyPreviewBlockStyle/, "Preview block style overrides are applied during post-processing");
+assert.match(script, /function sanitizeSvgHtml/, "Mermaid viewer sanitizes SVG snapshots");
+assert.match(script, /function openMermaidViewer/, "Mermaid fullscreen viewer can open from preview toolbar");
+assert.match(script, /function setMermaidViewerZoom/, "Mermaid viewer exposes zoom controls");
+assert.match(script, /function beginMermaidViewerPan/, "Mermaid viewer supports drag panning");
+assert.match(script, /function downloadMermaidSvg/, "Mermaid viewer can export SVG");
+assert.match(script, /function downloadMermaidPng/, "Mermaid viewer can export PNG");
+assert.match(script, /function embedExportImages/, "HTML exports can embed image library data");
+assert.match(script, /function getExportMetadata/, "Exports include template metadata");
+assert.match(script, /markdown-studio-metadata/, "HTML exports include metadata script");
+assert.match(script, /function createZipBlob/, "Export-all ZIP writer exists");
+assert.match(script, /function exportAllZip/, "Workspace ZIP export action exists");
 assert.match(script, /imageLibrary/, "Image library persistence is wired");
 assert.match(script, /userTemplates/, "User template persistence is wired");
 assert.match(editor, /setValue\(text, options = \{\}\)/, "Editor adapter supports silent setValue options");
@@ -52,6 +63,10 @@ assert.match(index, /tableEditor\.headers/, "Table editor supports header editin
 assert.match(index, /tableEditor\.rows/, "Table editor supports row editing");
 assert.match(index, /showBlockStyleEditor/, "Block style editor modal is exposed in the UI");
 assert.match(index, /blockStyleEditor\.backgroundMode/, "Block style editor supports background mode");
+assert.match(index, /showMermaidViewer/, "Mermaid fullscreen viewer modal is exposed in the UI");
+assert.match(index, /mermaidViewerZoomLabel/, "Mermaid fullscreen viewer shows zoom state");
+assert.match(index, /downloadMermaidPng/, "Mermaid fullscreen viewer exposes PNG download");
+assert.match(index, /exportAllZip/, "Workspace ZIP export is exposed in the UI");
 assert.match(cmEntry, /from '@codemirror\/search'/, "CodeMirror search exports are bundled");
 assert.match(pkg, /"@codemirror\/search"/, "CodeMirror search dependency is declared");
 assert.match(manifest, /\.\.\/assets\/images\/android-chrome-192x192\.png/, "Manifest icon path is relative to manifest file");
