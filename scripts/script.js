@@ -433,6 +433,7 @@ const SHORTCUTS = [
   { key: "Ctrl+G", desc: "Mermaid Builder" },
   { key: "Ctrl+O", desc: "Block Organizer" },
   { key: "Ctrl+F", desc: "Find & Replace" },
+  { key: "Ctrl+,", desc: "Settings" },
   { key: "Ctrl+Z", desc: "Undo" },
   { key: "Ctrl+Y", desc: "Redo" },
   { key: "Ctrl+Shift+H", desc: "History / Snapshots" },
@@ -444,13 +445,10 @@ const SHORTCUTS = [
 function sanitizeHtml(html) {
   if (window.DOMPurify) {
     return DOMPurify.sanitize(html, {
-      ADD_TAGS: ["iframe"],
-      ADD_ATTR: ["allow", "allowfullscreen", "frameborder", "scrolling"],
       FORCE_BODY: true,
     });
   }
-  // If DOMPurify not loaded, do basic script-strip (original behavior)
-  return html;
+  return String(html).replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "");
 }
 
 // ─── Marked setup ───────────────────────────────────────────────────────────
@@ -458,10 +456,15 @@ function sanitizeHtml(html) {
 function setupMarked() {
   if (!window.marked) return;
   const renderer = new marked.Renderer();
+  const isToken = (value) =>
+    value && typeof value === "object" && !Array.isArray(value);
 
   // Code blocks — highlight.js + mermaid detection
-  renderer.code = (code, lang) => {
-    if (lang === "mermaid") {
+  renderer.code = function (tokenOrCode, langArg = "") {
+    const token = isToken(tokenOrCode) ? tokenOrCode : null;
+    const code = token ? token.text ?? token.raw ?? "" : tokenOrCode ?? "";
+    const lang = token ? token.lang || token.infostring || "" : langArg || "";
+    if (lang.trim().toLowerCase() === "mermaid") {
       const id = "mmd-" + Math.random().toString(36).slice(2, 8);
       return `<div class="mermaid-block code-block-wrap" data-id="${id}" data-code="${escHtml(code)}"><span class="code-lang">mermaid</span><pre class="mermaid mermaid-source">${escHtml(code)}</pre></div>`;
     }
@@ -475,12 +478,20 @@ function setupMarked() {
     const langLabel = lang
       ? `<span class="code-lang">${escHtml(lang)}</span>`
       : "";
-    return `<div class="code-block-wrap" data-code="${escHtml(code)}">${langLabel}<pre><code class="hljs ${lang || ""}">${highlighted}</code></pre></div>`;
+    return `<div class="code-block-wrap" data-code="${escHtml(code)}">${langLabel}<pre><code class="hljs ${escHtml(lang || "")}">${highlighted}</code></pre></div>`;
   };
 
   // Headings — add slug ids for outline/anchor
-  renderer.heading = (text, level) => {
-    const slug = text
+  renderer.heading = function (tokenOrText, levelArg = 1) {
+    const token = isToken(tokenOrText) ? tokenOrText : null;
+    const level = token ? token.depth || 1 : levelArg || 1;
+    const text = token
+      ? token.tokens && this.parser
+        ? this.parser.parseInline(token.tokens)
+        : token.text || ""
+      : tokenOrText ?? "";
+    const slugText = token?.text || String(text).replace(/<[^>]+>/g, "");
+    const slug = slugText
       .toLowerCase()
       .replace(/[^\w\s-]/g, "")
       .replace(/\s+/g, "-");
@@ -488,7 +499,15 @@ function setupMarked() {
   };
 
   // Links — open external in new tab safely
-  renderer.link = (href, title, text) => {
+  renderer.link = function (tokenOrHref, titleArg = "", textArg = "") {
+    const token = isToken(tokenOrHref) ? tokenOrHref : null;
+    const href = token ? token.href || "" : tokenOrHref || "";
+    const title = token ? token.title || "" : titleArg || "";
+    const text = token
+      ? token.tokens && this.parser
+        ? this.parser.parseInline(token.tokens)
+        : token.text || href
+      : textArg || href;
     const isExternal =
       href && (href.startsWith("http://") || href.startsWith("https://"));
     const rel = isExternal ? ' rel="noopener noreferrer"' : "";
@@ -849,6 +868,7 @@ createApp({
     const files = ref([]);
     const activeFileId = ref(null);
     const unsaved = ref(false);
+    const fileSearch = ref("");
 
     // editor
     let editorInstance = null; // the CM6 / fallback adapter
@@ -876,6 +896,16 @@ createApp({
     const showFR = ref(false);
     const showSettings = ref(false);
     const showHistory = ref(false);
+    const appDialog = ref({
+      open: false,
+      title: "",
+      message: "",
+      fields: [],
+      confirmText: "OK",
+      cancelText: "Cancel",
+      danger: false,
+    });
+    let appDialogResolve = null;
     const syncScrollEnabled = ref(false);
     const sidebarTemplatesOpen = ref(true);
 
@@ -948,6 +978,7 @@ createApp({
     const mediaBlockBorder = ref(false);
     const mediaBlockBgMode = ref("transparent");
     const mediaBlockBgColor = ref("#ffffff");
+    const fileStyleDefaults = ref(null);
     const imagePathMap = ref({});
 
     // export
@@ -1036,12 +1067,6 @@ createApp({
     const newTplName = ref("");
     const newTplDesc = ref("");
     const newTplIncContent = ref(false);
-    const showSaveTpl = computed({
-      get: () => showSaveTplModal.value,
-      set: (value) => {
-        showSaveTplModal.value = value;
-      },
-    });
     const tplInclude = computed({
       get: () => newTplIncContent.value,
       set: (value) => {
@@ -1166,6 +1191,14 @@ createApp({
     const activeFile = computed(
       () => files.value.find((f) => f.id === activeFileId.value) || null,
     );
+
+    const filteredFiles = computed(() => {
+      const query = fileSearch.value.trim().toLowerCase();
+      if (!query) return files.value;
+      return files.value.filter((file) =>
+        (file.name || "").toLowerCase().includes(query),
+      );
+    });
 
     const currentContent = computed({
       get: () => activeFile.value?.content || "",
@@ -1353,7 +1386,58 @@ createApp({
       }, duration);
     }
 
-    function createDefaultFileStyle() {
+    function openAppDialog(options) {
+      if (appDialogResolve) appDialogResolve({ confirmed: false, values: {} });
+      appDialog.value = {
+        open: true,
+        title: options.title || "Confirm",
+        message: options.message || "",
+        fields: (options.fields || []).map((field) => ({ ...field })),
+        confirmText: options.confirmText || "OK",
+        cancelText: options.cancelText || "Cancel",
+        danger: Boolean(options.danger),
+      };
+      return new Promise((resolve) => {
+        appDialogResolve = resolve;
+        nextTick(() => {
+          document.querySelector(".app-dialog-field input")?.focus();
+        });
+      });
+    }
+
+    function closeAppDialog(confirmed = false) {
+      const values = {};
+      appDialog.value.fields.forEach((field) => {
+        values[field.id] = field.value || "";
+      });
+      appDialog.value.open = false;
+      if (appDialogResolve) appDialogResolve({ confirmed, values });
+      appDialogResolve = null;
+    }
+
+    async function confirmApp(message, options = {}) {
+      const result = await openAppDialog({
+        title: options.title || "Confirm action",
+        message,
+        confirmText: options.confirmText || "Confirm",
+        cancelText: options.cancelText || "Cancel",
+        danger: options.danger,
+      });
+      return result.confirmed;
+    }
+
+    async function promptApp(options) {
+      const result = await openAppDialog({
+        title: options.title || "Enter details",
+        message: options.message || "",
+        confirmText: options.confirmText || "Insert",
+        cancelText: options.cancelText || "Cancel",
+        fields: options.fields || [],
+      });
+      return result.confirmed ? result.values : null;
+    }
+
+    function createBaseFileStyle() {
       return {
         version: 1,
         renderTheme: "default",
@@ -1382,6 +1466,24 @@ createApp({
         mediaBlockBorder: false,
         mediaBlockBgMode: "transparent",
         mediaBlockBgColor: "#ffffff",
+      };
+    }
+
+    function sanitizeStyleDefaults(style) {
+      const {
+        previewBlockSizes,
+        previewBlockAlignments,
+        ...defaults
+      } = style || {};
+      return defaults;
+    }
+
+    function createDefaultFileStyle() {
+      return {
+        ...createBaseFileStyle(),
+        ...sanitizeStyleDefaults(fileStyleDefaults.value),
+        previewBlockSizes: {},
+        previewBlockAlignments: {},
       };
     }
 
@@ -1455,15 +1557,39 @@ createApp({
 
     function touchActiveFileStyle() {
       if (!activeFile.value || applyingFileStyle) return;
-      activeFile.value.style = captureFileStyle();
+      const style = captureFileStyle();
+      activeFile.value.style = style;
+      fileStyleDefaults.value = sanitizeStyleDefaults(style);
+      setSetting("fileStyleDefaults", fileStyleDefaults.value);
       markUnsaved();
     }
 
+    function normalizeFileForStorage(file, overrides = {}) {
+      const source = { ...(file || {}), ...overrides };
+      const now = Date.now();
+      return {
+        id: source.id || genId(),
+        name: source.name || "untitled.md",
+        content: source.content || "",
+        style: source.style || createDefaultFileStyle(),
+        createdAt: source.createdAt || now,
+        updatedAt: source.updatedAt || now,
+      };
+    }
+
+    function persistFile(file, overrides = {}) {
+      return saveFile(normalizeFileForStorage(file, overrides));
+    }
+
     function markUnsaved() {
+      if (!activeFile.value) return;
       unsaved.value = true;
       autosaveStatus.value = "unsaved";
       scheduleAutosave(
-        { ...activeFile.value, content: currentContent.value },
+        normalizeFileForStorage(activeFile.value, {
+          content: currentContent.value,
+          style: activeFile.value.style || captureFileStyle(),
+        }),
         () => {
           unsaved.value = false;
           autosaveStatus.value = "saved";
@@ -1514,10 +1640,11 @@ createApp({
     function syncToEditor(text) {
       if (!editorInstance) return;
       syncingEditorProgrammatically = true;
-      editorInstance.setValue(text || "");
-      queueMicrotask(() => {
+      try {
+        editorInstance.setValue(text || "", { silent: true });
+      } finally {
         syncingEditorProgrammatically = false;
-      });
+      }
     }
 
     // ── file management ──────────────────────────────────────────────────────
@@ -1534,7 +1661,7 @@ createApp({
           createdAt: Date.now(),
           updatedAt: Date.now(),
         };
-        await saveFile(def);
+        await persistFile(def);
         files.value = [def];
       } else {
         files.value = all.sort(
@@ -1553,7 +1680,7 @@ createApp({
       if (activeFileId.value) {
         cancelAutosave();
         if (unsaved.value && activeFile.value) {
-          await saveFile({ ...activeFile.value });
+          await persistFile(activeFile.value);
           unsaved.value = false;
         }
       }
@@ -1583,7 +1710,7 @@ createApp({
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
-      await saveFile(f);
+      await persistFile(f);
       files.value.unshift(f);
       await switchFile(f.id);
     }
@@ -1593,7 +1720,12 @@ createApp({
         notify("Cannot delete last file", "warn");
         return;
       }
-      if (!confirm("Delete this file?")) return;
+      const ok = await confirmApp("Delete this file? This cannot be undone.", {
+        title: "Delete file",
+        confirmText: "Delete",
+        danger: true,
+      });
+      if (!ok) return;
       await dbDeleteFile(id);
       files.value = files.value.filter((f) => f.id !== id);
       if (activeFileId.value === id) {
@@ -1603,8 +1735,7 @@ createApp({
 
     async function saveFileFn() {
       if (!activeFile.value) return;
-      await saveFile({
-        ...activeFile.value,
+      await persistFile(activeFile.value, {
         content: editorInstance?.getValue() || currentContent.value,
         style: captureFileStyle(),
       });
@@ -1622,7 +1753,7 @@ createApp({
     function finishRename() {
       if (activeFile.value && renameVal.value.trim()) {
         activeFile.value.name = renameVal.value.trim();
-        saveFile({ ...activeFile.value });
+        persistFile(activeFile.value);
       }
       renamingFile.value = false;
     }
@@ -1644,7 +1775,7 @@ createApp({
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
-      await saveFile(f);
+      await persistFile(f);
       files.value.unshift(f);
       await switchFile(f.id);
       e.target.value = "";
@@ -1680,12 +1811,15 @@ createApp({
     }
 
     async function restoreSnapshot(snap) {
-      if (
-        !confirm(
-          `Restore snapshot from ${snap.label}? Current content will be replaced.`,
-        )
-      )
-        return;
+      const ok = await confirmApp(
+        `Restore snapshot from ${snap.label}? Current content will be replaced.`,
+        {
+          title: "Restore snapshot",
+          confirmText: "Restore",
+          danger: true,
+        },
+      );
+      if (!ok) return;
       syncToEditor(snap.content);
       syncFromEditor();
       showHistory.value = false;
@@ -1838,6 +1972,10 @@ createApp({
         newFile();
       }
       if (e.key === "Escape") {
+        if (appDialog.value.open) {
+          closeAppDialog(false);
+          return;
+        }
         if (focusMode.value) {
           focusMode.value = false;
           return;
@@ -1865,9 +2003,18 @@ createApp({
       editorInstance?.redo();
     }
 
-    function insertLink() {
-      const url = prompt("URL:", "https://");
-      const label = prompt("Label:", "Link");
+    async function insertLink() {
+      const values = await promptApp({
+        title: "Insert link",
+        confirmText: "Insert",
+        fields: [
+          { id: "url", label: "URL", value: "https://", placeholder: "https://" },
+          { id: "label", label: "Label", value: "Link", placeholder: "Link text" },
+        ],
+      });
+      if (!values) return;
+      const url = values.url;
+      const label = values.label;
       if (url) insertText(`[${label || "Link"}](${url})`);
     }
 
@@ -2048,6 +2195,14 @@ createApp({
       syncEditorFromPreview();
     }
 
+    function jumpToCorrespondingBlock(source) {
+      if (source === "preview") {
+        syncEditorFromPreview();
+        return;
+      }
+      syncPreviewFromEditor();
+    }
+
     function toggleSyncScroll() {
       syncScrollEnabled.value = !syncScrollEnabled.value;
       nextTick(() => {
@@ -2061,7 +2216,7 @@ createApp({
     function openLatexBuilder() {
       latexInput.value = "";
       latexRendered.value = "";
-      latexCat.value = "common";
+      latexCat.value = "greek";
       showLatex.value = true;
     }
 
@@ -2141,10 +2296,6 @@ createApp({
       mermaidCode.value = tpl.code;
       mermaidTpl.value = tpl.id;
       previewMermaid();
-    }
-
-    function loadMermaidTemplate(tpl) {
-      loadMermaidTpl(tpl);
     }
 
     function insertMermaidToEditor() {
@@ -2238,6 +2389,8 @@ createApp({
 
     // ── Find & Replace ────────────────────────────────────────────────────────
 
+    const frFindRef = ref(null);
+
     function openFR() {
       showFR.value = true;
       frCountMatches();
@@ -2324,8 +2477,6 @@ createApp({
       }
     }
 
-    const frFindRef = ref(null);
-
     // ── Image manager ─────────────────────────────────────────────────────────
 
     function openImgManager() {
@@ -2339,6 +2490,16 @@ createApp({
         [img.path]: img.data,
         [`./${img.path}`]: img.data,
       };
+    }
+
+    function rebuildImagePathMap() {
+      const map = {};
+      images.value.forEach((img) => {
+        if (!img?.path || !img.data) return;
+        map[img.path] = img.data;
+        map[`./${img.path}`] = img.data;
+      });
+      imagePathMap.value = map;
     }
 
     function insertImageMarkdown(img) {
@@ -2594,15 +2755,18 @@ createApp({
     function openTemplates() {
       showTemplates.value = true;
     }
-    function loadTemplate(t) {
-      if (confirm("Replace current content with template?")) {
-        syncToEditor(t.content);
-        syncFromEditor();
-        if (t.style) applyFileStyle(t.style);
-        else if (t.theme) renderTheme.value = t.theme;
-        nextTick(touchActiveFileStyle);
-        showTemplates.value = false;
-      }
+    async function loadTemplate(t) {
+      const ok = await confirmApp("Replace current content with this template?", {
+        title: "Apply template",
+        confirmText: "Replace",
+      });
+      if (!ok) return;
+      syncToEditor(t.content);
+      syncFromEditor();
+      if (t.style) applyFileStyle(t.style);
+      else if (t.theme) renderTheme.value = t.theme;
+      nextTick(touchActiveFileStyle);
+      showTemplates.value = false;
     }
 
     function openSaveTplModal() {
@@ -2674,26 +2838,88 @@ createApp({
       );
     }
 
+    function cssPropName(prop) {
+      return prop.startsWith("--")
+        ? prop
+        : prop.replace(/[A-Z]/g, (match) => `-${match.toLowerCase()}`);
+    }
+
+    function styleObjectToCss(style) {
+      return Object.entries(style || {})
+        .filter(([, value]) => value !== undefined && value !== null && value !== "")
+        .map(([prop, value]) => `  ${cssPropName(prop)}: ${String(value).replace(/;/g, "")};`)
+        .join("\n");
+    }
+
+    function buildExportStyle() {
+      const pageStyle = styleObjectToCss(previewPageStyle.value);
+      return `
+  :root { color-scheme: light; }
+  body { margin: 0; background: #f3f5f8; color: #1f2937; }
+  .md-export {
+${pageStyle}
+    box-sizing: border-box;
+    margin: 40px auto;
+    background: ${cColorBg.value || "#ffffff"};
+    color: ${cColorText.value || "inherit"};
+  }
+  .md-export p { margin: 0 0 var(--para-gap, 0.8em); }
+  .md-export h1, .md-export h2, .md-export h3, .md-export h4 {
+    color: var(--color-head, inherit);
+    font-family: var(--head-font, inherit);
+    line-height: 1.18;
+  }
+  .md-export h1 { font-size: var(--h1-size, 2.2em); }
+  .md-export h2 { font-size: var(--h2-size, 1.7em); }
+  .md-export a { color: var(--color-link, #2563eb); }
+  .md-export pre {
+    background: #f6f8fa;
+    padding: 16px;
+    border-radius: 6px;
+    overflow-x: auto;
+  }
+  .md-export code { font-family: "JetBrains Mono", "DM Mono", monospace; }
+  .md-export table {
+    border-collapse: collapse;
+    width: var(--table-width, 100%);
+    display: var(--table-display, block);
+    margin: var(--table-margin, 0.7em 0);
+    font-size: var(--table-font-size, 1em);
+    overflow-x: auto;
+  }
+  .md-export th, .md-export td {
+    border: 1px solid #d1d5db;
+    padding: var(--table-pad-y, 0.42em) var(--table-pad-x, 0.68em);
+  }
+  .md-export tbody tr:nth-child(even) { background: var(--table-stripe, transparent); }
+  .md-export img, .md-export svg { max-width: 100%; height: auto; }
+  .mermaid-block, .image-block, .table-block {
+    border: var(--media-block-border, 1px solid transparent);
+    background: var(--media-block-bg, transparent);
+  }`;
+    }
+
     function buildExportHtml() {
       const body = renderedHtml.value;
+      const title = escHtml(exportTitle.value || activeFile.value?.name || "Document");
+      const themeClass = `theme-${String(renderTheme.value).replace(/[^\w-]/g, "")}`;
+      const scaleClass = String(previewPageClass.value).replace(/[^\w-]/g, "");
       return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>${exportTitle.value || activeFile.value?.name || "Document"}</title>
+<title>${title}</title>
 <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"><\/script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"><\/script>
 <style>
-  body { max-width: 800px; margin: 40px auto; font-family: sans-serif; line-height: 1.7; padding: 0 20px; }
-  pre { background: #f6f8fa; padding: 16px; border-radius: 6px; overflow-x:auto; }
-  code { font-family: monospace; }
-  table { border-collapse: collapse; width: 100%; }
-  th, td { border: 1px solid #ccc; padding: 8px 12px; }
+${buildExportStyle()}
 </style>
 </head>
 <body>
+<main class="md-export md-body ${themeClass} ${scaleClass}">
 ${body}
+</main>
 <script>mermaid.initialize({startOnLoad:true});<\/script>
 </body>
 </html>`;
@@ -2705,7 +2931,7 @@ ${body}
 
     function exportDocx() {
       // Simple Word-compatible HTML export
-      const html = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word'><head><meta charset='utf-8'></head><body>${renderedHtml.value}</body></html>`;
+      const html = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word'><head><meta charset='utf-8'><style>${buildExportStyle()}</style></head><body><main class="md-export">${renderedHtml.value}</main></body></html>`;
       const blob = new Blob([html], { type: "application/msword" });
       downloadBlob(
         blob,
@@ -2821,14 +3047,6 @@ ${body}
       return doCopy();
     }
 
-    function exportPDF() {
-      return exportPdfFn();
-    }
-
-    function exportHTML() {
-      return exportHtml();
-    }
-
     function exportTxt() {
       return exportPlain();
     }
@@ -2859,7 +3077,7 @@ ${body}
         name: f.name.replace(".md", "") + "-copy.md",
         updatedAt: Date.now(),
       };
-      await saveFile(dup);
+      await persistFile(dup);
       files.value.unshift(dup);
       fileCtxOpen.value = false;
     }
@@ -2903,7 +3121,7 @@ ${body}
     // ── style panel ───────────────────────────────────────────────────────────
 
     function resetStyle() {
-      applyFileStyle(createDefaultFileStyle());
+      applyFileStyle(createBaseFileStyle());
       nextTick(touchActiveFileStyle);
     }
 
@@ -2929,6 +3147,17 @@ ${body}
     watch(previewTableLayout, (v) => setSetting("previewTableLayout", v));
     watch(previewScaleScope, (v) => setSetting("previewScaleScope", v));
     watch(previewScaleFactor, (v) => setSetting("previewScaleFactor", v));
+    watch(userTemplates, (templates) => setSetting("userTemplates", templates), {
+      deep: true,
+    });
+    watch(
+      images,
+      (library) => {
+        rebuildImagePathMap();
+        setSetting("imageLibrary", library);
+      },
+      { deep: true },
+    );
 
     watch(
       [
@@ -3014,6 +3243,14 @@ ${body}
         previewScaleScope.value = settings.previewScaleScope;
       if (settings.previewScaleFactor)
         previewScaleFactor.value = settings.previewScaleFactor;
+      if (settings.fileStyleDefaults)
+        fileStyleDefaults.value = sanitizeStyleDefaults(settings.fileStyleDefaults);
+      if (Array.isArray(settings.userTemplates))
+        userTemplates.value = settings.userTemplates;
+      if (Array.isArray(settings.imageLibrary)) {
+        images.value = settings.imageLibrary;
+        rebuildImagePathMap();
+      }
 
       // Load files from IndexedDB
       await loadAllFiles();
@@ -3086,6 +3323,8 @@ ${body}
       files,
       activeFileId,
       activeFile,
+      fileSearch,
+      filteredFiles,
       unsaved,
       autosaveStatus,
       viewMode,
@@ -3106,6 +3345,8 @@ ${body}
       showFR,
       showSettings,
       showHistory,
+      appDialog,
+      closeAppDialog,
       syncScrollEnabled,
       sidebarTemplatesOpen,
       previewScroller,
@@ -3199,7 +3440,6 @@ ${body}
       cropDisplayRect,
       userTemplates,
       showSaveTplModal,
-      showSaveTpl,
       tplTab,
       newTplName,
       newTplDesc,
@@ -3277,7 +3517,6 @@ ${body}
       previewMermaid,
       renderMermaidPreview,
       loadMermaidTpl,
-      loadMermaidTemplate,
       insertMermaidToEditor,
       parseBlocks,
       blocksToContent,
@@ -3342,8 +3581,6 @@ ${body}
       doCopy,
       clearEditor,
       copyText,
-      exportPDF,
-      exportHTML,
       exportTxt,
       exportJSON,
       startRenameById,

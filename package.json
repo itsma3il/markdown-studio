@@ -1,4 +1,7 @@
 {
+  "scripts": {
+    "test": "node tests/static-regression.mjs"
+  },
   "devDependencies": {
     "@codemirror/autocomplete": "^6.20.3",
     "@codemirror/commands": "^6.10.4",

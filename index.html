@@ -238,8 +238,16 @@
                 <i class="ti ti-plus"></i>
               </button>
             </div>
+            <label class="sb-search">
+              <i class="ti ti-search"></i>
+              <input
+                type="search"
+                v-model="fileSearch"
+                placeholder="Search files"
+              />
+            </label>
             <div
-              v-for="f in files"
+              v-for="f in filteredFiles"
               :key="f.id"
               class="file-item"
               :class="{active:activeFileId===f.id}"
@@ -251,6 +259,9 @@
               <button class="file-del" @click.stop="deleteFile(f.id)">
                 <i class="ti ti-x"></i>
               </button>
+            </div>
+            <div v-if="!filteredFiles.length" class="sb-empty">
+              No matching files
             </div>
             <button
               class="sb-btn"
@@ -917,20 +928,13 @@
         </div>
       </div>
       <div id="statusbar">
-        <span
-          ><span
-            class="status-dot"
-            :style="{background:unsaved?'var(--warn)':'var(--suc)'}"
-          ></span
-          >{{unsaved?'Unsaved':'Saved'}}</span
-        >
         <span>
           <span
             class="status-dot"
-            :style="{background: autosaveStatus==='saved' ? 'var(--suc)' : autosaveStatus==='saving' ? 'var(--warn)' : 'var(--err)'}"
+            :style="{background: autosaveStatus==='saved' && !unsaved ? 'var(--suc)' : autosaveStatus==='saving' ? 'var(--warn)' : 'var(--err)'}"
           ></span>
-          {{ autosaveStatus === 'saved' ? 'Autosaved' : autosaveStatus ===
-          'saving' ? 'Saving…' : 'Unsaved' }}
+          {{ autosaveStatus === 'saving' ? 'Saving…' : unsaved ||
+          autosaveStatus === 'unsaved' ? 'Unsaved' : 'Saved' }}
         </span>
         <span
           ><i
@@ -1119,7 +1123,7 @@
                   :key="t.id"
                   class="mb-node-btn"
                   :class="{active:mermaidDiagramType===t.id}"
-                  @click="loadMermaidTemplate(t)"
+                  @click="loadMermaidTpl(t)"
                 >
                   <i
                     :class="'ti '+t.icon"
@@ -1255,7 +1259,7 @@
               <div class="export-card-name">Markdown</div>
               <div class="export-card-desc">.md source</div>
             </div>
-            <div class="export-card" @click="exportHTML">
+            <div class="export-card" @click="exportHtml">
               <i class="ti ti-brand-html5"></i>
               <div class="export-card-name">HTML</div>
               <div class="export-card-desc">Standalone + Mermaid</div>
@@ -1360,7 +1364,7 @@
             <button
               class="btn btn-primary"
               style="width: 100%"
-              @click="exportPDF"
+              @click="exportPdfFn"
             >
               <i class="ti ti-file-type-pdf"></i>Export PDF Now
             </button>
@@ -1750,15 +1754,15 @@
       <!-- SAVE TEMPLATE -->
       <div
         class="modal-overlay"
-        v-if="showSaveTpl"
-        @click.self="showSaveTpl=false"
+        v-if="showSaveTplModal"
+        @click.self="showSaveTplModal=false"
       >
         <div class="modal-box" style="width: 400px">
           <div class="modal-header">
             <div class="modal-title">
               <i class="ti ti-bookmark-plus"></i>Save Template
             </div>
-            <button class="modal-close" @click="showSaveTpl=false">
+            <button class="modal-close" @click="showSaveTplModal=false">
               <i class="ti ti-x"></i>
             </button>
           </div>
@@ -1791,7 +1795,7 @@
             /><label for="tic">Include current content</label>
           </div>
           <div class="modal-footer">
-            <button class="btn" @click="showSaveTpl=false">Cancel</button
+            <button class="btn" @click="showSaveTplModal=false">Cancel</button
             ><button class="btn btn-primary" @click="saveAsUserTemplate">
               Save
             </button>
@@ -2170,6 +2174,52 @@
         </div>
       </div>
 
+      <!-- APP DIALOG -->
+      <div
+        class="modal-overlay"
+        v-if="appDialog.open"
+        @click.self="closeAppDialog(false)"
+      >
+        <div class="modal-box app-dialog" @keydown.enter="closeAppDialog(true)">
+          <div class="modal-header">
+            <div class="modal-title">
+              <i :class="appDialog.danger?'ti ti-alert-triangle':'ti ti-message-circle'"></i>
+              {{ appDialog.title }}
+            </div>
+            <button class="modal-close" @click="closeAppDialog(false)">
+              <i class="ti ti-x"></i>
+            </button>
+          </div>
+          <p v-if="appDialog.message" class="app-dialog-message">
+            {{ appDialog.message }}
+          </p>
+          <div
+            v-for="field in appDialog.fields"
+            :key="field.id"
+            class="app-dialog-field"
+          >
+            <label>{{ field.label }}</label>
+            <input
+              type="text"
+              v-model="field.value"
+              :placeholder="field.placeholder || ''"
+            />
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-sm" @click="closeAppDialog(false)">
+              {{ appDialog.cancelText }}
+            </button>
+            <button
+              class="btn btn-sm"
+              :class="appDialog.danger?'btn-danger':'btn-primary'"
+              @click="closeAppDialog(true)"
+            >
+              {{ appDialog.confirmText }}
+            </button>
+          </div>
+        </div>
+      </div>
+
       <!-- FOCUS MODE -->
       <transition name="fade">
         <div v-if="focusMode" class="focus-overlay">
@@ -2286,10 +2336,10 @@
             <i class="ti ti-file-text"></i>Copy plain text
           </div>
           <div class="ctx-sep"></div>
-          <div class="ctx-item" @click="exportPDF();closeCtx()">
+          <div class="ctx-item" @click="exportPdfFn();closeCtx()">
             <i class="ti ti-file-type-pdf"></i>Export PDF
           </div>
-          <div class="ctx-item" @click="exportHTML();closeCtx()">
+          <div class="ctx-item" @click="exportHtml();closeCtx()">
             <i class="ti ti-brand-html5"></i>Export HTML
           </div>
           <div class="ctx-item" @click="exportMarkdown();closeCtx()">

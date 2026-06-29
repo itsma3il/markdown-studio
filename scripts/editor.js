@@ -47,6 +47,7 @@ export function createEditor({ parent, initialValue = '', onChange, onKeydown, d
 // ─── CodeMirror 6 ──────────────────────────────────────────────────────────
 
 function createCM6Editor({ parent, initialValue, onChange, onKeydown, darkMode, wordWrap, fontSize, lineHeight }) {
+  let suppressChange = false;
   const {
     EditorView, EditorState, Compartment,
     keymap, lineNumbers,
@@ -105,7 +106,7 @@ function createCM6Editor({ parent, initialValue, onChange, onKeydown, darkMode, 
     fontCompartment.of(baseTheme(fontSize, lineHeight)),
     markdownLang ? markdownLang() : [],
     EditorView.updateListener.of((update) => {
-      if (update.docChanged && typeof onChange === 'function') {
+      if (update.docChanged && !suppressChange && typeof onChange === 'function') {
         onChange(update.state.doc.toString());
       }
     }),
@@ -130,10 +131,15 @@ function createCM6Editor({ parent, initialValue, onChange, onKeydown, darkMode, 
       return view.state.doc.toString();
     },
 
-    setValue(text) {
-      view.dispatch({
-        changes: { from: 0, to: view.state.doc.length, insert: text },
-      });
+    setValue(text, options = {}) {
+      suppressChange = Boolean(options.silent);
+      try {
+        view.dispatch({
+          changes: { from: 0, to: view.state.doc.length, insert: text },
+        });
+      } finally {
+        suppressChange = false;
+      }
     },
 
     /** Insert text at cursor, or replace selection */
@@ -293,9 +299,9 @@ function createTextareaFallback({ parent, initialValue, onChange, onKeydown, wor
 
     getValue() { return ta.value; },
 
-    setValue(text) {
+    setValue(text, options = {}) {
       ta.value = text;
-      ta.dispatchEvent(new Event('input'));
+      if (!options.silent) ta.dispatchEvent(new Event('input'));
     },
 
     insert(text) {
