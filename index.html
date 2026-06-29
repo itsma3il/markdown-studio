@@ -72,6 +72,13 @@
           style="display: none"
           @change="onMdFileUpload"
         />
+        <input
+          ref="workspaceFileInput"
+          type="file"
+          accept=".json,application/json"
+          style="display: none"
+          @change="onWorkspaceRestore"
+        />
         <button
             class="tb-icon"
             :class="{active:sidebarOpen}"
@@ -250,9 +257,14 @@
               v-for="f in filteredFiles"
               :key="f.id"
               class="file-item"
-              :class="{active:activeFileId===f.id}"
+              :class="{active:activeFileId===f.id, dragging:draggedFileId===f.id, 'drag-over':fileDragOverId===f.id && draggedFileId!==f.id}"
+              :draggable="!isFileSearchActive"
               @click="switchFile(f.id)"
               @contextmenu.prevent="openFileCtx($event,f)"
+              @dragstart="onFileDragStart($event,f.id)"
+              @dragover="onFileDragOver($event,f.id)"
+              @drop="onFileDrop($event,f.id)"
+              @dragend="onFileDragEnd"
             >
               <i class="ti ti-file-text"></i
               ><span class="file-name">{{f.name}}</span>
@@ -489,7 +501,13 @@
               v-show="activePanel==='editor'"
               @contextmenu.prevent="openEditorCtx"
               ref="editorWrap"
-            ></div>
+            >
+              <div
+                class="sync-indicator sync-indicator-editor"
+                v-show="syncIndicator.visible && syncScrollEnabled"
+                :style="{top:syncIndicator.editorTop+'px'}"
+              ></div>
+            </div>
             <!-- BLOCK ORGANIZER -->
             <div class="block-organizer" v-show="activePanel==='organizer'">
               <div class="block-org-toolbar">
@@ -649,6 +667,11 @@
               </div>
             </div>
             <div id="preview-scroller" ref="previewScroller" @contextmenu.prevent="openPreviewCtx">
+              <div
+                class="sync-indicator sync-indicator-preview"
+                v-show="syncIndicator.visible && syncScrollEnabled"
+                :style="{top:syncIndicator.previewTop+'px'}"
+              ></div>
               <div
                 id="preview-page"
                 :class="['md-body','theme-'+renderTheme, previewPageClass]"
@@ -1810,6 +1833,157 @@
         </div>
       </div>
 
+      <!-- BLOCK STYLE EDITOR -->
+      <div
+        class="modal-overlay"
+        v-if="showBlockStyleEditor"
+        @click.self="showBlockStyleEditor=false"
+      >
+        <div class="modal-box block-style-modal">
+          <div class="modal-header">
+            <div class="modal-title">
+              <i class="ti ti-brush"></i>Block Style
+            </div>
+            <button class="modal-close" @click="showBlockStyleEditor=false">
+              <i class="ti ti-x"></i>
+            </button>
+          </div>
+          <div class="block-style-grid">
+            <label class="block-style-toggle">
+              <span>Border</span>
+              <input type="checkbox" v-model="blockStyleEditor.border" />
+            </label>
+            <div class="block-style-field" v-if="blockStyleEditor.border">
+              <label>Border color</label>
+              <div class="block-style-color">
+                <input type="color" v-model="blockStyleEditor.borderColor" />
+                <span>{{blockStyleEditor.borderColor}}</span>
+              </div>
+            </div>
+            <div class="block-style-field">
+              <label>Background</label>
+              <select v-model="blockStyleEditor.backgroundMode">
+                <option value="transparent">Transparent</option>
+                <option value="color">Color</option>
+              </select>
+            </div>
+            <div
+              class="block-style-field"
+              v-if="blockStyleEditor.backgroundMode==='color'"
+            >
+              <label>Background color</label>
+              <div class="block-style-color">
+                <input type="color" v-model="blockStyleEditor.backgroundColor" />
+                <span>{{blockStyleEditor.backgroundColor}}</span>
+              </div>
+            </div>
+            <div class="block-style-field">
+              <label>Padding</label>
+              <input
+                type="range"
+                min="0"
+                max="48"
+                step="1"
+                v-model.number="blockStyleEditor.padding"
+              />
+              <span>{{blockStyleEditor.padding}}px</span>
+            </div>
+            <div class="block-style-field">
+              <label>Radius</label>
+              <input
+                type="range"
+                min="0"
+                max="32"
+                step="1"
+                v-model.number="blockStyleEditor.radius"
+              />
+              <span>{{blockStyleEditor.radius}}px</span>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn" @click="resetBlockStyleEditor">
+              <i class="ti ti-restore"></i>Reset
+            </button>
+            <button class="btn" @click="showBlockStyleEditor=false">Cancel</button>
+            <button class="btn btn-primary" @click="applyBlockStyleEditor">
+              <i class="ti ti-check"></i>Apply
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- TABLE EDITOR -->
+      <div
+        class="modal-overlay"
+        v-if="showTableEditor"
+        @click.self="showTableEditor=false"
+      >
+        <div class="modal-box modal-wide table-editor-modal">
+          <div class="modal-header">
+            <div class="modal-title">
+              <i class="ti ti-table-options"></i>Table Editor
+            </div>
+            <button class="modal-close" @click="showTableEditor=false">
+              <i class="ti ti-x"></i>
+            </button>
+          </div>
+          <div class="table-editor-tools">
+            <button class="btn btn-sm" @click="addTableRow">
+              <i class="ti ti-row-insert-bottom"></i> Row
+            </button>
+            <button class="btn btn-sm" @click="addTableColumn">
+              <i class="ti ti-column-insert-right"></i> Column
+            </button>
+          </div>
+          <div class="table-editor-grid-wrap">
+            <table class="table-editor-grid">
+              <thead>
+                <tr>
+                  <th
+                    v-for="(cell,colIdx) in tableEditor.headers"
+                    :key="'h'+colIdx"
+                  >
+                    <div class="table-editor-cell">
+                      <input v-model="tableEditor.headers[colIdx]" />
+                      <button
+                        class="table-editor-remove"
+                        @click="removeTableColumn(colIdx)"
+                        title="Remove column"
+                      >
+                        <i class="ti ti-x"></i>
+                      </button>
+                    </div>
+                  </th>
+                  <th class="table-editor-actions"></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(row,rowIdx) in tableEditor.rows" :key="'r'+rowIdx">
+                  <td v-for="(cell,colIdx) in tableEditor.headers" :key="colIdx">
+                    <input v-model="tableEditor.rows[rowIdx][colIdx]" />
+                  </td>
+                  <td class="table-editor-actions">
+                    <button
+                      class="table-editor-remove"
+                      @click="removeTableRow(rowIdx)"
+                      title="Remove row"
+                    >
+                      <i class="ti ti-trash"></i>
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="modal-footer">
+            <button class="btn" @click="showTableEditor=false">Cancel</button>
+            <button class="btn btn-primary" @click="applyTableEditor">
+              <i class="ti ti-check"></i>Apply
+            </button>
+          </div>
+        </div>
+      </div>
+
       <!-- FIND/REPLACE -->
       <div class="modal-overlay" v-if="showFR" @click.self="showFR=false">
         <div class="modal-box find-replace-modal">
@@ -1997,6 +2171,22 @@
                   >Spellcheck</label
                 >
                 <input type="checkbox" v-model="settingsSpellcheck" />
+              </div>
+            </div>
+
+            <!-- Workspace -->
+            <div class="sp-section">
+              <div class="sp-title">Workspace</div>
+              <div class="workspace-tools">
+                <button class="btn btn-sm" @click="backupWorkspace">
+                  <i class="ti ti-database-export"></i> Backup
+                </button>
+                <button class="btn btn-sm" @click="triggerWorkspaceRestore">
+                  <i class="ti ti-database-import"></i> Restore
+                </button>
+              </div>
+              <div class="settings-hint">
+                Backups include files, snapshots, settings, templates, and the image library.
               </div>
             </div>
           </div>

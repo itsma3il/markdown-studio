@@ -27,6 +27,8 @@ import {
   getSetting,
   setSetting,
   getAllSettings,
+  exportWorkspaceData,
+  importWorkspaceData,
   migrateFromLocalStorage,
 } from "./storage.js";
 
@@ -67,6 +69,8 @@ graph LR
   A[Write] --> B[Preview] --> C[Export]
 \`\`\`
 `;
+
+const FILE_RECORD_VERSION = 1;
 
 // ── kept identical to original ─────────────────────────────────────────────
 
@@ -542,6 +546,95 @@ function stableHash(value) {
   return (hash >>> 0).toString(36);
 }
 
+function renderPreviewErrorHtml(error) {
+  const message = error?.message || String(error || "Unknown render error");
+  return `<div class="preview-render-error" role="alert">
+    <div class="preview-render-error-title"><i class="ti ti-alert-triangle"></i> Preview render failed</div>
+    <pre class="preview-render-error-message">${escHtml(message)}</pre>
+  </div>`;
+}
+
+function htmlToMarkdown(html) {
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const escape = (text) =>
+    text.replace(/([\\`*_{}\[\]()#+\-.!|>])/g, "\\$1");
+
+  function convert(node, depth = 0) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      return node.nodeValue.replace(/\s+/g, " ");
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return "";
+
+    const tag = node.tagName.toLowerCase();
+    const children = () =>
+      Array.from(node.childNodes).map((child) => convert(child, depth)).join("");
+    const block = (text) => `\n\n${text.trim()}\n\n`;
+
+    if (/^h[1-6]$/.test(tag)) {
+      return block(`${"#".repeat(Number(tag[1]))} ${children().trim()}`);
+    }
+    if (tag === "p" || tag === "div" || tag === "section" || tag === "article") {
+      return block(children());
+    }
+    if (tag === "br") return "\n";
+    if (tag === "strong" || tag === "b") return `**${children().trim()}**`;
+    if (tag === "em" || tag === "i") return `*${children().trim()}*`;
+    if (tag === "code") return `\`${node.textContent.trim()}\``;
+    if (tag === "pre") return `\n\n\`\`\`\n${node.textContent.replace(/\n+$/, "")}\n\`\`\`\n\n`;
+    if (tag === "a") {
+      const href = node.getAttribute("href") || "";
+      const text = children().trim() || href;
+      return href ? `[${text}](${href})` : text;
+    }
+    if (tag === "img") {
+      const alt = node.getAttribute("alt") || "Image";
+      const src = node.getAttribute("src") || "";
+      return src ? `![${alt}](${src})` : "";
+    }
+    if (tag === "blockquote") {
+      return block(
+        children()
+          .trim()
+          .split("\n")
+          .map((line) => `> ${line}`)
+          .join("\n"),
+      );
+    }
+    if (tag === "ul" || tag === "ol") {
+      const items = Array.from(node.children)
+        .filter((child) => child.tagName?.toLowerCase() === "li")
+        .map((li, index) => {
+          const marker = tag === "ol" ? `${index + 1}.` : "-";
+          return `${"  ".repeat(depth)}${marker} ${convert(li, depth + 1).trim()}`;
+        });
+      return `\n${items.join("\n")}\n`;
+    }
+    if (tag === "li") return children();
+    if (tag === "table") {
+      const rows = Array.from(node.querySelectorAll("tr")).map((row) =>
+        Array.from(row.children).map((cell) => cell.textContent.trim()),
+      );
+      if (!rows.length) return "";
+      const header = rows[0];
+      const separator = header.map(() => "---");
+      const body = rows.slice(1);
+      return block(
+        [header, separator, ...body]
+          .map((row) => `| ${row.map((cell) => escape(cell)).join(" | ")} |`)
+          .join("\n"),
+      );
+    }
+    return children();
+  }
+
+  return Array.from(doc.body.childNodes)
+    .map((node) => convert(node))
+    .join("")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 // Global copy helper referenced in rendered HTML
 window.copyCode = function (btn) {
   const wrap = btn.closest(".code-block-wrap");
@@ -596,6 +689,115 @@ function copyBlockSource(kind, wrap) {
   }
   if (!text) return;
   navigator.clipboard?.writeText(text);
+}
+
+function parseMarkdownTableBlock(block) {
+  const lines = String(block || "")
+    .trim()
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith("|") && line.endsWith("|"));
+  if (lines.length < 2) return null;
+  const toCells = (line) => {
+    const body = line.replace(/^\|/, "").replace(/\|$/, "");
+    const cells = [];
+    let cell = "";
+    for (let index = 0; index < body.length; index++) {
+      const char = body[index];
+      if (char === "\\" && body[index + 1] === "|") {
+        cell += "|";
+        index++;
+        continue;
+      }
+      if (char === "|") {
+        cells.push(cell.trim());
+        cell = "";
+        continue;
+      }
+      cell += char;
+    }
+    cells.push(cell.trim());
+    return cells;
+  };
+  const header = toCells(lines[0]);
+  const body = lines.slice(2).map(toCells);
+  const width = Math.max(header.length, ...body.map((row) => row.length), 1);
+  const normalize = (row) =>
+    Array.from({ length: width }, (_, index) => row[index] || "");
+  return {
+    headers: normalize(header),
+    rows: body.map(normalize),
+  };
+}
+
+function serializeMarkdownTable(table) {
+  const headers = table.headers?.length ? table.headers : ["Column 1"];
+  const width = headers.length;
+  const normalize = (row) =>
+    Array.from({ length: width }, (_, index) =>
+      String(row?.[index] || "").replace(/\|/g, "\\|").trim(),
+    );
+  const header = normalize(headers);
+  const separator = header.map(() => "---");
+  const rows = (table.rows?.length ? table.rows : [Array(width).fill("")]).map(normalize);
+  return [header, separator, ...rows]
+    .map((row) => `| ${row.join(" | ")} |`)
+    .join("\n");
+}
+
+function clampNumber(value, min, max, fallback) {
+  const next = Number(value);
+  if (!Number.isFinite(next)) return fallback;
+  return Math.min(max, Math.max(min, next));
+}
+
+function safeHexColor(value, fallback = "#ffffff") {
+  return /^#[0-9a-f]{6}$/i.test(String(value || "")) ? value : fallback;
+}
+
+function normalizePreviewBlockStyle(style = {}, kind = "image") {
+  const defaults = {
+    border: false,
+    borderColor: "#d1d5db",
+    backgroundMode: "transparent",
+    backgroundColor: "#ffffff",
+    padding: kind === "table" ? 0 : 6,
+    radius: 8,
+  };
+  const backgroundMode = style.backgroundMode === "color" ? "color" : "transparent";
+  return {
+    ...defaults,
+    border: Boolean(style.border),
+    borderColor: safeHexColor(style.borderColor, defaults.borderColor),
+    backgroundMode,
+    backgroundColor: safeHexColor(style.backgroundColor, defaults.backgroundColor),
+    padding: clampNumber(style.padding, 0, 48, defaults.padding),
+    radius: clampNumber(style.radius, 0, 32, defaults.radius),
+  };
+}
+
+function applyPreviewBlockStyle(wrap, style, kind) {
+  if (!wrap || !style) return;
+  const normalized = normalizePreviewBlockStyle(style, kind);
+  wrap.classList.add("has-preview-block-style");
+  wrap.style.border = normalized.border
+    ? `1px solid ${normalized.borderColor}`
+    : "1px solid transparent";
+  wrap.style.background =
+    normalized.backgroundMode === "color"
+      ? normalized.backgroundColor
+      : "transparent";
+  wrap.style.padding = `${normalized.padding}px`;
+  wrap.style.borderRadius = `${normalized.radius}px`;
+}
+
+function clearPreviewBlockStyle(wrap) {
+  if (!wrap) return;
+  wrap.classList.remove("has-preview-block-style");
+  wrap.style.border = "";
+  wrap.style.background = "";
+  wrap.style.padding = "";
+  wrap.style.borderRadius = "";
 }
 
 function setAlignButtonIcon(button, align) {
@@ -732,18 +934,73 @@ async function postProcessPreviewContainer(
   container,
   sizes,
   alignments,
+  blockStyles,
   imageMap,
   onResize,
   onStyleChange,
+  onOpenBlockStyle,
+  onEditTable,
 ) {
   if (!container) return;
   await renderMermaid(container);
   resolvePreviewImages(container, imageMap);
-  enhancePreviewBlocks(container, sizes, alignments, onResize, onStyleChange);
+  enhancePreviewBlocks(
+    container,
+    sizes,
+    alignments,
+    blockStyles,
+    onResize,
+    onStyleChange,
+    onOpenBlockStyle,
+    onEditTable,
+  );
 }
 
-function enhancePreviewBlocks(container, sizes, alignments, onResize, onStyleChange) {
+function enhancePreviewBlocks(
+  container,
+  sizes,
+  alignments,
+  blockStyles,
+  onResize,
+  onStyleChange,
+  onOpenBlockStyle,
+  onEditTable,
+) {
   const targets = [];
+  const blockKeyByElement = new Map();
+  const tableIndexByElement = new Map();
+  let blockIndex = 0;
+  let tableIndex = 0;
+  container.querySelectorAll(".mermaid-block, table, img").forEach((el) => {
+    const kind = el.matches(".mermaid-block")
+      ? "mermaid"
+      : el.matches("table")
+        ? "table"
+        : "image";
+    blockKeyByElement.set(el, `${kind}:${blockIndex++}`);
+    if (kind === "table") tableIndexByElement.set(el, tableIndex++);
+  });
+
+  container.querySelectorAll(".preview-resize-wrap").forEach((wrap) => {
+    const child = wrap.querySelector(".mermaid-block, table, img");
+    const key = child ? blockKeyByElement.get(child) : wrap.dataset.resizeKey;
+    const kind = child?.matches(".mermaid-block")
+      ? "mermaid"
+      : child?.matches("table")
+        ? "table"
+        : wrap.dataset.resizeKind || "image";
+    if (!key) return;
+    wrap.dataset.resizeKey = key;
+    wrap.dataset.resizeKind = kind;
+    if (kind === "table" && child) {
+      wrap.dataset.tableIndex = String(tableIndexByElement.get(child) ?? -1);
+    }
+    wrap.style.width = sizes?.[key] || wrap.style.width || "";
+    applyPreviewAlignment(wrap, alignments?.[key] || wrap.dataset.align || "left", kind);
+    clearPreviewBlockStyle(wrap);
+    applyPreviewBlockStyle(wrap, blockStyles?.[key], kind);
+  });
+
   container.querySelectorAll(".mermaid-block, table, img").forEach((el) => {
     if (el.closest(".preview-resize-wrap")) return;
     targets.push(el);
@@ -756,14 +1013,18 @@ function enhancePreviewBlocks(container, sizes, alignments, onResize, onStyleCha
         ? "table"
         : "image";
     const wrap = document.createElement("div");
-    const key = `${kind}:${index}`;
+    const key = blockKeyByElement.get(el) || `${kind}:${index}`;
     wrap.className = `preview-resize-wrap preview-resize-${kind}`;
     wrap.dataset.resizeKey = key;
     wrap.dataset.resizeKind = kind;
     wrap.style.width = sizes[key] || "";
     applyPreviewAlignment(wrap, alignments?.[key] || "left", kind);
+    applyPreviewBlockStyle(wrap, blockStyles?.[key], kind);
 
+    let sourceTableIndex = -1;
     if (kind === "table") {
+      sourceTableIndex = tableIndexByElement.get(el) ?? -1;
+      wrap.dataset.tableIndex = String(sourceTableIndex);
       el.classList.add("preview-table-block");
     }
     if (kind === "image") {
@@ -799,9 +1060,10 @@ function enhancePreviewBlocks(container, sizes, alignments, onResize, onStyleCha
       event.preventDefault();
       event.stopPropagation();
       const options = ["left", "center", "right", "justify"];
+      const currentKey = wrap.dataset.resizeKey || key;
       const current = wrap.dataset.align || "left";
       const next = options[(options.indexOf(current) + 1) % options.length];
-      if (alignments) alignments[key] = next;
+      if (alignments) alignments[currentKey] = next;
       applyPreviewAlignment(wrap, next, kind);
       setAlignButtonIcon(align, next);
       onStyleChange?.();
@@ -810,8 +1072,42 @@ function enhancePreviewBlocks(container, sizes, alignments, onResize, onStyleCha
     const toolbar = document.createElement("div");
     toolbar.className = "preview-block-toolbar";
     toolbar.append(copy, align);
+    const style = document.createElement("button");
+    style.type = "button";
+    style.className = "preview-block-style";
+    style.title = "Customize block";
+    style.innerHTML = '<i class="ti ti-brush"></i>';
+    style.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      onOpenBlockStyle?.(
+        wrap.dataset.resizeKey || key,
+        wrap.dataset.resizeKind || kind,
+      );
+    });
+    toolbar.append(style);
+    if (kind === "table") {
+      const edit = document.createElement("button");
+      edit.type = "button";
+      edit.className = "preview-block-edit";
+      edit.title = "Edit table";
+      edit.innerHTML = '<i class="ti ti-table-options"></i>';
+      edit.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onEditTable?.(Number(wrap.dataset.tableIndex ?? sourceTableIndex));
+      });
+      toolbar.append(edit);
+    }
 
-    handle.addEventListener("pointerdown", (event) => onResize(event, wrap, key, kind));
+    handle.addEventListener("pointerdown", (event) =>
+      onResize(
+        event,
+        wrap,
+        wrap.dataset.resizeKey || key,
+        wrap.dataset.resizeKind || kind,
+      ),
+    );
 
     el.parentNode?.insertBefore(wrap, el);
     wrap.appendChild(el);
@@ -836,11 +1132,18 @@ createApp({
     const activeFileId = ref(null);
     const unsaved = ref(false);
     const fileSearch = ref("");
+    const draggedFileId = ref(null);
+    const fileDragOverId = ref(null);
 
     // editor
     let editorInstance = null; // the CM6 / fallback adapter
     const editorWrap = ref(null); // DOM ref for #editor-wrap
     const previewScroller = ref(null);
+    const syncIndicator = ref({
+      visible: false,
+      editorTop: 0,
+      previewTop: 0,
+    });
 
     // view
     const viewMode = ref("split");
@@ -942,11 +1245,32 @@ createApp({
     const previewScaleFactor = ref(1);
     const previewBlockSizes = ref({});
     const previewBlockAlignments = ref({});
+    const previewBlockStyles = ref({});
     const mediaBlockBorder = ref(false);
     const mediaBlockBgMode = ref("transparent");
     const mediaBlockBgColor = ref("#ffffff");
     const fileStyleDefaults = ref(null);
     const imagePathMap = ref({});
+
+    // table editor
+    const showTableEditor = ref(false);
+    const tableEditor = ref({
+      tableIndex: -1,
+      blockIndex: -1,
+      headers: [],
+      rows: [],
+    });
+    const showBlockStyleEditor = ref(false);
+    const blockStyleEditor = ref({
+      key: "",
+      kind: "image",
+      border: false,
+      borderColor: "#d1d5db",
+      backgroundMode: "transparent",
+      backgroundColor: "#ffffff",
+      padding: 6,
+      radius: 8,
+    });
 
     // export
     const showPdfSettings = ref(false);
@@ -1167,6 +1491,8 @@ createApp({
       );
     });
 
+    const isFileSearchActive = computed(() => Boolean(fileSearch.value.trim()));
+
     const currentContent = computed({
       get: () => activeFile.value?.content || "",
       set: (v) => {
@@ -1179,45 +1505,49 @@ createApp({
     });
 
     function renderMarkdownToHtml(markdown) {
-      if (!window.marked) return "<p>Loading…</p>";
-      let src = markdown || "";
-      const mathBlocks = [];
+      try {
+        if (!window.marked) return "<p>Loading...</p>";
+        let src = markdown || "";
+        const mathBlocks = [];
 
-      src = src.replace(/\$\$([\s\S]+?)\$\$/g, (match, expr) => {
-        const id = `KATEXDISPLAYPLACEHOLDER${mathBlocks.length}XYZ`;
-        mathBlocks.push({ id, expr, displayMode: true });
-        return id;
-      });
-
-      src = src.replace(/\$([^\n$]+?)\$/g, (match, expr) => {
-        const id = `KATEXINLINEPLACEHOLDER${mathBlocks.length}XYZ`;
-        mathBlocks.push({ id, expr, displayMode: false });
-        return id;
-      });
-
-      let html = sanitizeHtml(marked.parse(src));
-
-      if (window.katex) {
-        mathBlocks.forEach((block) => {
-          try {
-            const rendered = katex.renderToString(block.expr.trim(), {
-              displayMode: block.displayMode,
-              throwOnError: false,
-            });
-            const wrapper = block.displayMode
-              ? `<div class="katex-block">${rendered}</div>`
-              : `<span class="katex-inline">${rendered}</span>`;
-            html = html.replace(block.id, wrapper);
-          } catch (e) {
-            const errWrapper = block.displayMode
-              ? `<div class="katex-error">LaTeX: ${e.message}</div>`
-              : `<span class="katex-error">${block.expr}</span>`;
-            html = html.replace(block.id, errWrapper);
-          }
+        src = src.replace(/\$\$([\s\S]+?)\$\$/g, (match, expr) => {
+          const id = `KATEXDISPLAYPLACEHOLDER${mathBlocks.length}XYZ`;
+          mathBlocks.push({ id, expr, displayMode: true });
+          return id;
         });
-      }
 
-      return html;
+        src = src.replace(/\$([^\n$]+?)\$/g, (match, expr) => {
+          const id = `KATEXINLINEPLACEHOLDER${mathBlocks.length}XYZ`;
+          mathBlocks.push({ id, expr, displayMode: false });
+          return id;
+        });
+
+        let html = sanitizeHtml(marked.parse(src));
+
+        if (window.katex) {
+          mathBlocks.forEach((block) => {
+            try {
+              const rendered = katex.renderToString(block.expr.trim(), {
+                displayMode: block.displayMode,
+                throwOnError: false,
+              });
+              const wrapper = block.displayMode
+                ? `<div class="katex-block">${rendered}</div>`
+                : `<span class="katex-inline">${rendered}</span>`;
+              html = html.replace(block.id, wrapper);
+            } catch (e) {
+              const errWrapper = block.displayMode
+                ? `<div class="katex-error">LaTeX: ${escHtml(e.message)}</div>`
+                : `<span class="katex-error">${escHtml(block.expr)}</span>`;
+              html = html.replace(block.id, errWrapper);
+            }
+          });
+        }
+
+        return html;
+      } catch (error) {
+        return renderPreviewErrorHtml(error);
+      }
     }
 
     function splitPreviewSource(src) {
@@ -1378,6 +1708,7 @@ createApp({
     let editorScrollEl = null;
     let previewScrollEl = null;
     let scrollSyncing = false;
+    let syncIndicatorTimer = null;
 
     const filteredBlockTypes = computed(() => {
       if (!blockTypeSearch.value) return BLOCK_TYPES;
@@ -1497,6 +1828,7 @@ createApp({
         previewScaleFactor: 1,
         previewBlockSizes: {},
         previewBlockAlignments: {},
+        previewBlockStyles: {},
         mediaBlockBorder: false,
         mediaBlockBgMode: "transparent",
         mediaBlockBgColor: "#ffffff",
@@ -1507,6 +1839,7 @@ createApp({
       const {
         previewBlockSizes,
         previewBlockAlignments,
+        previewBlockStyles,
         ...defaults
       } = style || {};
       return defaults;
@@ -1518,6 +1851,7 @@ createApp({
         ...sanitizeStyleDefaults(fileStyleDefaults.value),
         previewBlockSizes: {},
         previewBlockAlignments: {},
+        previewBlockStyles: {},
       };
     }
 
@@ -1547,6 +1881,7 @@ createApp({
         previewScaleFactor: previewScaleFactor.value,
         previewBlockSizes: { ...previewBlockSizes.value },
         previewBlockAlignments: { ...previewBlockAlignments.value },
+        previewBlockStyles: { ...previewBlockStyles.value },
         mediaBlockBorder: mediaBlockBorder.value,
         mediaBlockBgMode: mediaBlockBgMode.value,
         mediaBlockBgColor: mediaBlockBgColor.value,
@@ -1580,6 +1915,7 @@ createApp({
       previewScaleFactor.value = s.previewScaleFactor;
       previewBlockSizes.value = { ...(s.previewBlockSizes || {}) };
       previewBlockAlignments.value = { ...(s.previewBlockAlignments || {}) };
+      previewBlockStyles.value = { ...(s.previewBlockStyles || {}) };
       mediaBlockBorder.value = Boolean(s.mediaBlockBorder);
       mediaBlockBgMode.value = s.mediaBlockBgMode || "transparent";
       mediaBlockBgColor.value = s.mediaBlockBgColor || "#ffffff";
@@ -1606,6 +1942,7 @@ createApp({
         name: source.name || "untitled.md",
         content: source.content || "",
         style: source.style || createDefaultFileStyle(),
+        schemaVersion: FILE_RECORD_VERSION,
         createdAt: source.createdAt || now,
         updatedAt: source.updatedAt || now,
       };
@@ -1670,6 +2007,17 @@ createApp({
       syncFromEditor();
     }
 
+    function onEditorPaste(event) {
+      const html = event.clipboardData?.getData("text/html");
+      const plain = event.clipboardData?.getData("text/plain");
+      if (!html || !/<[a-z][\s\S]*>/i.test(html)) return false;
+      const markdown = htmlToMarkdown(html);
+      if (!markdown || markdown.trim() === plain?.trim()) return false;
+      insertText(markdown);
+      notify("Pasted as Markdown", "success", 1200);
+      return true;
+    }
+
     /** Pull current value from editor → currentContent */
     function syncFromEditor() {
       if (!editorInstance || !activeFile.value) return;
@@ -1690,6 +2038,29 @@ createApp({
 
     // ── file management ──────────────────────────────────────────────────────
 
+    function applyFileOrder(order = []) {
+      if (!Array.isArray(order) || !order.length) {
+        files.value = [...files.value].sort(
+          (a, b) => (b.updatedAt || 0) - (a.updatedAt || 0),
+        );
+        return;
+      }
+      const rank = new Map(order.map((id, index) => [id, index]));
+      files.value = [...files.value].sort((a, b) => {
+        const ar = rank.has(a.id) ? rank.get(a.id) : Number.MAX_SAFE_INTEGER;
+        const br = rank.has(b.id) ? rank.get(b.id) : Number.MAX_SAFE_INTEGER;
+        if (ar !== br) return ar - br;
+        return (b.updatedAt || 0) - (a.updatedAt || 0);
+      });
+    }
+
+    function persistFileOrder() {
+      setSetting(
+        "fileOrder",
+        files.value.map((file) => file.id),
+      );
+    }
+
     async function loadAllFiles() {
       const all = await getAllFiles();
       if (!all || all.length === 0) {
@@ -1705,9 +2076,8 @@ createApp({
         await persistFile(def);
         files.value = [def];
       } else {
-        files.value = all.sort(
-          (a, b) => (b.updatedAt || 0) - (a.updatedAt || 0),
-        );
+        files.value = all.map((file) => normalizeFileForStorage(file));
+        applyFileOrder(await getSetting("fileOrder", []));
       }
       // Activate most recently updated
       const lastId = await getSetting("activeFileId", null);
@@ -1753,6 +2123,7 @@ createApp({
       };
       await persistFile(f);
       files.value.unshift(f);
+      persistFileOrder();
       await switchFile(f.id);
     }
 
@@ -1769,6 +2140,7 @@ createApp({
       if (!ok) return;
       await dbDeleteFile(id);
       files.value = files.value.filter((f) => f.id !== id);
+      persistFileOrder();
       if (activeFileId.value === id) {
         await switchFile(files.value[0].id);
       }
@@ -1801,6 +2173,7 @@ createApp({
 
     // file upload
     const mdFileInput = ref(null);
+    const workspaceFileInput = ref(null);
     function triggerMdUpload() {
       mdFileInput.value?.click();
     }
@@ -1818,8 +2191,100 @@ createApp({
       };
       await persistFile(f);
       files.value.unshift(f);
+      persistFileOrder();
       await switchFile(f.id);
       e.target.value = "";
+    }
+
+    function onFileDragStart(event, id) {
+      if (isFileSearchActive.value) {
+        event.preventDefault();
+        return;
+      }
+      draggedFileId.value = id;
+      fileDragOverId.value = id;
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", id);
+    }
+
+    function onFileDragOver(event, id) {
+      if (!draggedFileId.value || isFileSearchActive.value) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+      fileDragOverId.value = id;
+    }
+
+    function onFileDrop(event, targetId) {
+      event.preventDefault();
+      const sourceId = draggedFileId.value || event.dataTransfer.getData("text/plain");
+      draggedFileId.value = null;
+      fileDragOverId.value = null;
+      if (!sourceId || sourceId === targetId || isFileSearchActive.value) return;
+      const next = [...files.value];
+      const sourceIndex = next.findIndex((file) => file.id === sourceId);
+      const targetIndex = next.findIndex((file) => file.id === targetId);
+      if (sourceIndex < 0 || targetIndex < 0) return;
+      const [moved] = next.splice(sourceIndex, 1);
+      next.splice(targetIndex, 0, moved);
+      files.value = next;
+      persistFileOrder();
+    }
+
+    function onFileDragEnd() {
+      draggedFileId.value = null;
+      fileDragOverId.value = null;
+    }
+
+    function triggerWorkspaceRestore() {
+      workspaceFileInput.value?.click();
+    }
+
+    async function backupWorkspace() {
+      if (unsaved.value && activeFile.value) {
+        await saveFileFn();
+      }
+      const data = await exportWorkspaceData();
+      const backup = {
+        app: "markdown-studio",
+        schemaVersion: 1,
+        ...data,
+      };
+      const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+      downloadBlob(
+        new Blob([JSON.stringify(backup, null, 2)], {
+          type: "application/json",
+        }),
+        `markdown-studio-backup-${stamp}.json`,
+      );
+      checkStorageQuota("Workspace");
+    }
+
+    async function onWorkspaceRestore(e) {
+      const file = e.target.files?.[0];
+      e.target.value = "";
+      if (!file) return;
+      try {
+        const data = JSON.parse(await file.text());
+        if (data?.app !== "markdown-studio" || !Array.isArray(data.files)) {
+          notify("Invalid workspace backup file", "warn");
+          return;
+        }
+        const ok = await confirmApp(
+          "Restore this workspace backup? Current files, snapshots, templates, and image library will be replaced.",
+          {
+            title: "Restore workspace",
+            confirmText: "Restore",
+            danger: true,
+          },
+        );
+        if (!ok) return;
+        cancelAutosave();
+        await importWorkspaceData(data);
+        notify("Workspace restored. Reloading…", "success", 1600);
+        setTimeout(() => window.location.reload(), 600);
+      } catch (error) {
+        notify(error?.message || "Workspace restore failed", "warn");
+      }
     }
 
     // ── snapshots ────────────────────────────────────────────────────────────
@@ -1930,9 +2395,12 @@ createApp({
                 page,
                 previewBlockSizes.value,
                 previewBlockAlignments.value,
+                previewBlockStyles.value,
                 imagePathMap.value,
                 beginPreviewResize,
                 touchActiveFileStyle,
+                openBlockStyleEditor,
+                openTableEditor,
               ),
             ),
           ).then(() => {
@@ -2084,6 +2552,127 @@ createApp({
       );
     }
 
+    function getMarkdownBlocksWithPositions() {
+      const content = editorInstance?.getValue() || currentContent.value || "";
+      const blocks = [];
+      const pattern = /(?:^|\n{2,})([^\n](?:[\s\S]*?))(?=\n{2,}|$)/g;
+      let match;
+      while ((match = pattern.exec(content))) {
+        const raw = match[1];
+        const leadingBreaks = match[0].length - raw.length;
+        blocks.push({
+          content: raw,
+          start: match.index + leadingBreaks,
+          end: match.index + match[0].length,
+        });
+      }
+      return { content, blocks };
+    }
+
+    function findTableBlockByIndex(tableIndex) {
+      const { content, blocks } = getMarkdownBlocksWithPositions();
+      let currentTable = 0;
+      for (let index = 0; index < blocks.length; index++) {
+        const parsed = parseMarkdownTableBlock(blocks[index].content);
+        if (!parsed) continue;
+        if (currentTable === tableIndex) {
+          return { content, block: blocks[index], blockIndex: index, parsed };
+        }
+        currentTable++;
+      }
+      return null;
+    }
+
+    function openTableEditor(tableIndex) {
+      const found = findTableBlockByIndex(tableIndex);
+      if (!found) {
+        notify("Could not find table source", "warn");
+        return;
+      }
+      tableEditor.value = {
+        tableIndex,
+        blockIndex: found.blockIndex,
+        headers: found.parsed.headers.map((cell) => cell),
+        rows: found.parsed.rows.map((row) => row.map((cell) => cell)),
+      };
+      showTableEditor.value = true;
+    }
+
+    function addTableRow() {
+      const width = Math.max(1, tableEditor.value.headers.length);
+      tableEditor.value.rows.push(Array(width).fill(""));
+    }
+
+    function removeTableRow(index) {
+      tableEditor.value.rows.splice(index, 1);
+      if (!tableEditor.value.rows.length) addTableRow();
+    }
+
+    function addTableColumn() {
+      const next = tableEditor.value.headers.length + 1;
+      tableEditor.value.headers.push(`Column ${next}`);
+      tableEditor.value.rows.forEach((row) => row.push(""));
+    }
+
+    function removeTableColumn(index) {
+      if (tableEditor.value.headers.length <= 1) return;
+      tableEditor.value.headers.splice(index, 1);
+      tableEditor.value.rows.forEach((row) => row.splice(index, 1));
+    }
+
+    function applyTableEditor() {
+      const found = findTableBlockByIndex(tableEditor.value.tableIndex);
+      if (!found) {
+        notify("Could not update table source", "warn");
+        return;
+      }
+      const nextTable = serializeMarkdownTable(tableEditor.value);
+      const nextContent =
+        found.content.slice(0, found.block.start) +
+        nextTable +
+        found.content.slice(found.block.end);
+      syncToEditor(nextContent);
+      syncFromEditor();
+      showTableEditor.value = false;
+      notify("Table updated", "success", 1200);
+    }
+
+    function openBlockStyleEditor(key, kind) {
+      const current = normalizePreviewBlockStyle(previewBlockStyles.value[key], kind);
+      blockStyleEditor.value = {
+        key,
+        kind,
+        ...current,
+      };
+      showBlockStyleEditor.value = true;
+    }
+
+    function applyBlockStyleEditor() {
+      const editor = blockStyleEditor.value;
+      if (!editor.key) return;
+      const normalized = normalizePreviewBlockStyle(editor, editor.kind);
+      previewBlockStyles.value = {
+        ...previewBlockStyles.value,
+        [editor.key]: normalized,
+      };
+      showBlockStyleEditor.value = false;
+      touchActiveFileStyle();
+      scheduleRender();
+      notify("Block style updated", "success", 1200);
+    }
+
+    function resetBlockStyleEditor() {
+      const key = blockStyleEditor.value.key;
+      if (!key) return;
+      const next = { ...previewBlockStyles.value };
+      delete next[key];
+      previewBlockStyles.value = next;
+      showBlockStyleEditor.value = false;
+      touchActiveFileStyle();
+      scheduleRender();
+      notify("Block style reset", "success", 1200);
+    }
+
     function scrollToHeading(slug) {
       const el = document.getElementById(slug);
       if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -2143,6 +2732,76 @@ createApp({
       return Math.min(idx, Math.max(0, blocks.length - 1));
     }
 
+    function getEditorSyncPosition() {
+      const view = editorInstance?._view;
+      const map = getBlockLineMap();
+      if (!map.length) return { index: 0, ratio: 0, line: 1, top: 0 };
+      if (view) {
+        const viewportStart = view.viewport?.from ?? 0;
+        const line = view.state.doc.lineAt(viewportStart).number;
+        const index = blockIndexForLine(line);
+        const block = map[index] || map[0];
+        const span = Math.max(1, block.endLine - block.startLine + 1);
+        const ratio = Math.max(0, Math.min(1, (line - block.startLine - 1) / span));
+        const coords = view.coordsAtPos(view.state.doc.line(line).from);
+        const scrollerRect = view.scrollDOM.getBoundingClientRect();
+        return {
+          index,
+          ratio,
+          line,
+          top: coords ? coords.top - scrollerRect.top : 0,
+        };
+      }
+
+      const ta = editorInstance?._el;
+      if (!ta) return { index: 0, ratio: 0, line: 1, top: 0 };
+      const approxLineHeight = parseFloat(getComputedStyle(ta).lineHeight) || 20;
+      const line = Math.max(1, Math.floor(ta.scrollTop / approxLineHeight) + 1);
+      const index = blockIndexForLine(line);
+      const block = map[index] || map[0];
+      const span = Math.max(1, block.endLine - block.startLine + 1);
+      return {
+        index,
+        ratio: Math.max(0, Math.min(1, (line - block.startLine - 1) / span)),
+        line,
+        top: 0,
+      };
+    }
+
+    function getPreviewSyncPosition() {
+      const preview = previewScrollEl || previewScroller.value || document.getElementById("preview-scroller");
+      const page = document.getElementById("preview-page");
+      if (!preview || !page) return { index: 0, ratio: 0, top: 0 };
+      const blocks = Array.from(page.children);
+      if (!blocks.length) return { index: 0, ratio: 0, top: 0 };
+      const top = preview.scrollTop + 12;
+      let index = getPreviewBlockIndex();
+      const block = blocks[index] || blocks[0];
+      const height = Math.max(1, block.offsetHeight || block.getBoundingClientRect().height || 1);
+      const ratio = Math.max(0, Math.min(1, (top - block.offsetTop) / height));
+      return {
+        index,
+        ratio,
+        top: Math.max(0, block.offsetTop - preview.scrollTop + ratio * height),
+      };
+    }
+
+    function showSyncIndicator(editorTop, previewTop) {
+      if (!syncScrollEnabled.value) {
+        syncIndicator.value.visible = false;
+        return;
+      }
+      syncIndicator.value = {
+        visible: true,
+        editorTop: Math.max(0, editorTop || 0),
+        previewTop: Math.max(0, previewTop || 0),
+      };
+      clearTimeout(syncIndicatorTimer);
+      syncIndicatorTimer = setTimeout(() => {
+        syncIndicator.value.visible = false;
+      }, 900);
+    }
+
     function focusEditorLine(lineNumber) {
       const view = editorInstance?._view;
       if (view) {
@@ -2198,14 +2857,21 @@ createApp({
       if (!syncScrollEnabled.value || scrollSyncing) return;
       const view = editorInstance?._view;
       const preview = previewScrollEl || previewScroller.value || document.getElementById("preview-scroller");
-      if (!view || !preview) return;
-      const blocks = getSyncBlocks();
+      if (!preview) return;
+      const page = document.getElementById("preview-page");
+      const blocks = page ? Array.from(page.children) : [];
       if (!blocks.length) return;
-      const idx = Math.min(getEditorBlockIndex(), blocks.length - 1);
-      const target = Array.from(preview.children)[idx];
+      const position = getEditorSyncPosition();
+      const idx = Math.min(position.index, blocks.length - 1);
+      const target = blocks[idx];
       if (!target) return;
+      const targetHeight = Math.max(1, target.offsetHeight || target.getBoundingClientRect().height || 1);
       scrollSyncing = true;
-      preview.scrollTop = Math.max(0, target.offsetTop - 16);
+      preview.scrollTop = Math.max(
+        0,
+        target.offsetTop + targetHeight * position.ratio - preview.clientHeight * 0.18,
+      );
+      showSyncIndicator(position.top, target.offsetTop - preview.scrollTop + targetHeight * position.ratio);
       requestAnimationFrame(() => {
         scrollSyncing = false;
       });
@@ -2216,13 +2882,16 @@ createApp({
       const view = editorInstance?._view;
       const preview = previewScrollEl || previewScroller.value || document.getElementById("preview-scroller");
       if (!view || !preview) return;
-      const blocks = getSyncBlocks();
       const map = getBlockLineMap();
-      if (!blocks.length || !map.length) return;
-      const idx = Math.min(getPreviewBlockIndex(), map.length - 1);
-      const targetLine = (map[idx]?.startLine || 0) + 1;
+      if (!map.length) return;
+      const position = getPreviewSyncPosition();
+      const idx = Math.min(position.index, map.length - 1);
+      const block = map[idx] || map[0];
+      const span = Math.max(1, block.endLine - block.startLine + 1);
+      const targetLine = Math.max(1, Math.round(block.startLine + 1 + span * position.ratio));
       scrollSyncing = true;
       focusEditorLine(targetLine);
+      showSyncIndicator(24, position.top);
       requestAnimationFrame(() => {
         scrollSyncing = false;
       });
@@ -3318,6 +3987,7 @@ ${body}
             }
           },
           onKeydown: onEditorKeydown,
+          onPaste: onEditorPaste,
         });
 
         editorScrollEl = editorInstance?._view?.scrollDOM || null;
@@ -3346,6 +4016,7 @@ ${body}
       editorScrollEl?.removeEventListener("scroll", onEditorScroll);
       previewScrollEl?.removeEventListener("scroll", onPreviewScroll);
       clearInterval(snapshotTimer);
+      clearTimeout(syncIndicatorTimer);
       editorInstance?.destroy();
     });
 
@@ -3368,6 +4039,9 @@ ${body}
       activeFile,
       fileSearch,
       filteredFiles,
+      isFileSearchActive,
+      draggedFileId,
+      fileDragOverId,
       unsaved,
       autosaveStatus,
       viewMode,
@@ -3391,6 +4065,7 @@ ${body}
       appDialog,
       closeAppDialog,
       syncScrollEnabled,
+      syncIndicator,
       sidebarTemplatesOpen,
       previewScroller,
       frFindRef,
@@ -3437,6 +4112,7 @@ ${body}
       previewScaleFactor,
       previewBlockSizes,
       previewBlockAlignments,
+      previewBlockStyles,
       mediaBlockBorder,
       mediaBlockBgMode,
       mediaBlockBgColor,
@@ -3488,6 +4164,10 @@ ${body}
       newTplDesc,
       newTplIncContent,
       tplInclude,
+      showTableEditor,
+      tableEditor,
+      showBlockStyleEditor,
+      blockStyleEditor,
       notifications,
       ctxMenu,
       editorCtxOpen,
@@ -3540,8 +4220,16 @@ ${body}
       startRename,
       finishRename,
       mdFileInput,
+      workspaceFileInput,
       triggerMdUpload,
       onMdFileUpload,
+      triggerWorkspaceRestore,
+      backupWorkspace,
+      onWorkspaceRestore,
+      onFileDragStart,
+      onFileDragOver,
+      onFileDrop,
+      onFileDragEnd,
       fmt,
       fmtLine,
       fmtBlock,
@@ -3551,6 +4239,13 @@ ${body}
       insertLink,
       insertImageFromLib,
       insertTable,
+      addTableRow,
+      removeTableRow,
+      addTableColumn,
+      removeTableColumn,
+      applyTableEditor,
+      applyBlockStyleEditor,
+      resetBlockStyleEditor,
       scrollToHeading,
       openLatexBuilder,
       insertLatexSym,

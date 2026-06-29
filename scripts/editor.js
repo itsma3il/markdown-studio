@@ -33,20 +33,20 @@
    you're in the process of adding the bundle.
 ─────────────────────────────────────────────────────────────────────────── */
 
-export function createEditor({ parent, initialValue = '', onChange, onKeydown, darkMode = false, wordWrap = true, fontSize = 15, lineHeight = 1.7 }) {
+export function createEditor({ parent, initialValue = '', onChange, onKeydown, onPaste, darkMode = false, wordWrap = true, fontSize = 15, lineHeight = 1.7 }) {
 
   if (window.CM) {
-    return createCM6Editor({ parent, initialValue, onChange, onKeydown, darkMode, wordWrap, fontSize, lineHeight });
+    return createCM6Editor({ parent, initialValue, onChange, onKeydown, onPaste, darkMode, wordWrap, fontSize, lineHeight });
   }
 
   // ── FALLBACK: plain textarea ──────────────────────────────────────────────
   console.warn('[editor] CodeMirror bundle not found at window.CM — using textarea fallback.');
-  return createTextareaFallback({ parent, initialValue, onChange, onKeydown, wordWrap, fontSize, lineHeight });
+  return createTextareaFallback({ parent, initialValue, onChange, onKeydown, onPaste, wordWrap, fontSize, lineHeight });
 }
 
 // ─── CodeMirror 6 ──────────────────────────────────────────────────────────
 
-function createCM6Editor({ parent, initialValue, onChange, onKeydown, darkMode, wordWrap, fontSize, lineHeight }) {
+function createCM6Editor({ parent, initialValue, onChange, onKeydown, onPaste, darkMode, wordWrap, fontSize, lineHeight }) {
   let suppressChange = false;
   const {
     EditorView, EditorState, Compartment,
@@ -114,6 +114,13 @@ function createCM6Editor({ parent, initialValue, onChange, onKeydown, darkMode, 
     EditorView.domEventHandlers({
       keydown(event) {
         if (typeof onKeydown === 'function') onKeydown(event);
+      },
+      paste(event) {
+        if (typeof onPaste === 'function' && onPaste(event)) {
+          event.preventDefault();
+          return true;
+        }
+        return false;
       }
     }),
   ];
@@ -262,7 +269,7 @@ function createCM6Editor({ parent, initialValue, onChange, onKeydown, darkMode, 
 
 // ─── Textarea fallback ──────────────────────────────────────────────────────
 
-function createTextareaFallback({ parent, initialValue, onChange, onKeydown, wordWrap, fontSize, lineHeight }) {
+function createTextareaFallback({ parent, initialValue, onChange, onKeydown, onPaste, wordWrap, fontSize, lineHeight }) {
   const ta = document.createElement('textarea');
   ta.id          = 'editor-textarea';
   ta.spellcheck  = false;
@@ -276,6 +283,9 @@ function createTextareaFallback({ parent, initialValue, onChange, onKeydown, wor
   });
   ta.addEventListener('keydown', (e) => {
     if (typeof onKeydown === 'function') onKeydown(e);
+  });
+  ta.addEventListener('paste', (e) => {
+    if (typeof onPaste === 'function' && onPaste(e)) e.preventDefault();
   });
 
   function applyTextareaStyle(el, ww, fs, lh) {

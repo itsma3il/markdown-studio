@@ -77,6 +77,10 @@ function getAll(store) {
   });
 }
 
+function clearStore(store) {
+  return promisify(tx(store, 'readwrite').clear());
+}
+
 function toPlainData(value) {
   if (value == null) return value;
   return JSON.parse(JSON.stringify(value));
@@ -108,6 +112,14 @@ export async function deleteFile(id) {
   await promisify(tx('files', 'readwrite').delete(id));
   // delete all its snapshots
   await deleteSnapshotsForFile(id);
+}
+
+export async function replaceAllFiles(files = []) {
+  await openDB();
+  await clearStore('files');
+  for (const file of files) {
+    await promisify(tx('files', 'readwrite').put(toPlainData(file)));
+  }
 }
 
 // ─── AUTOSAVE ──────────────────────────────────────────────────────────────
@@ -191,6 +203,11 @@ export async function getSnapshot(id) {
   return promisify(tx('snapshots').get(id));
 }
 
+export async function getAllSnapshots() {
+  await openDB();
+  return getAll('snapshots');
+}
+
 export async function deleteSnapshot(id) {
   await openDB();
   return promisify(tx('snapshots', 'readwrite').delete(id));
@@ -211,6 +228,16 @@ async function pruneSnapshots(fileId) {
   const store = tx('snapshots', 'readwrite');
   for (const s of toDelete) {
     store.delete(s.id);
+  }
+}
+
+export async function replaceAllSnapshots(snapshots = []) {
+  await openDB();
+  await clearStore('snapshots');
+  for (const snapshot of snapshots) {
+    const stored = toPlainData(snapshot);
+    if (stored.id == null) delete stored.id;
+    await promisify(tx('snapshots', 'readwrite').add(stored));
   }
 }
 
@@ -237,6 +264,37 @@ export async function getAllSettings() {
   const out  = {};
   for (const r of rows) out[r.key] = r.value;
   return out;
+}
+
+export async function replaceAllSettings(settings = {}) {
+  await openDB();
+  await clearStore('settings');
+  for (const [key, value] of Object.entries(settings || {})) {
+    await setSetting(key, value);
+  }
+}
+
+export async function exportWorkspaceData() {
+  await openDB();
+  return {
+    exportedAt: new Date().toISOString(),
+    dbVersion: DB_VERSION,
+    files: await getAllFiles(),
+    snapshots: await getAllSnapshots(),
+    settings: await getAllSettings(),
+  };
+}
+
+export async function importWorkspaceData(data) {
+  await openDB();
+  const files = Array.isArray(data?.files) ? data.files : [];
+  const snapshots = Array.isArray(data?.snapshots) ? data.snapshots : [];
+  const settings = data?.settings && typeof data.settings === 'object'
+    ? data.settings
+    : {};
+  await replaceAllFiles(files);
+  await replaceAllSnapshots(snapshots);
+  await replaceAllSettings(settings);
 }
 
 // ─── MIGRATION: localStorage → IndexedDB ──────────────────────────────────
