@@ -37,6 +37,7 @@ assert.match(script, /previewBlockStyles/, "Per-block preview styles are persist
 assert.match(script, /function openBlockStyleEditor/, "Preview block style editor can open from toolbar");
 assert.match(script, /function applyPreviewBlockStyle/, "Preview block style overrides are applied during post-processing");
 assert.match(script, /function sanitizeSvgHtml/, "Mermaid viewer sanitizes SVG snapshots");
+assert.match(script, /ADD_TAGS:\s*\["foreignObject"\]/, "Mermaid viewer preserves HTML label containers");
 assert.match(script, /function openMermaidViewer/, "Mermaid fullscreen viewer can open from preview toolbar");
 assert.match(script, /function setMermaidViewerZoom/, "Mermaid viewer exposes zoom controls");
 assert.match(script, /function beginMermaidViewerPan/, "Mermaid viewer supports drag panning");

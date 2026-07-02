@@ -1,5 +1,5 @@
 /**
- * Markdown Studio — script.js  (improved edition)
+ * Markdown Studio — script.js 
  *
  * Changes vs original:
  *  1. Textarea replaced with CodeMirror 6 wrapper (editor.js adapter)
@@ -59,7 +59,9 @@ function sanitizeHtml(html) {
 function sanitizeSvgHtml(html) {
   if (window.DOMPurify) {
     return DOMPurify.sanitize(html, {
-      USE_PROFILES: { svg: true, svgFilters: true },
+      USE_PROFILES: { html: true, svg: true, svgFilters: true },
+      ADD_TAGS: ["foreignObject"],
+      ADD_ATTR: ["xmlns", "viewBox"],
     });
   }
   return String(html).replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "");
